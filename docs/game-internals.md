@@ -2560,6 +2560,16 @@ place in the view's frame) and screenshots.
   crosshair (hand x . view 0.99 - 1.00), only forearms and hands showing; free aim's shots through the dot at a
   37-health ped 6 m out: Colt45 37 -> 4.5, Uzi -> 11, M4 and Shotgun killed. Melee weapons keep the game's arms.
 
+- **Follow-up (the user's video 23-23)**: the eye-jump guard held the old eye behind him when a backwards run stopped
+  (our code turns the body to the view in one frame) - now only while the ped has a vehicle. Getting in / out his
+  position (+0x30) lags the anim by metres, so the bone hook's "within 2 m of the ped" test skipped those draws (head
+  drawn, eyes stale): within 3 m of the vehicle is accepted too. The drawn body is moved by the one-frame gap so the
+  head joint is at the camera (neck collapsed then), a car driver's head is kept softly within 0.42 m of the middle,
+  and TheCamera's matrix is set to first person's view at CDraw::SetFOV (0x37ADD4: after CCamera::Process's mode blend
+  and shake). Still open: 1 - 3 near-black frames at the start of a car exit and when the door shuts after entering
+  (the eye at the seated head; not the blend - cause not found), and one frame of the back of his head on a bike
+  dismount.
+
 ## 13. Open questions / next research targets
 
 - Main loop, frame limiter, CTimer (section 4) - milestone 4 (60 fps).
