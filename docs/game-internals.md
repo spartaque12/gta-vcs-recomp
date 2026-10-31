@@ -2574,6 +2574,15 @@ place in the view's frame) and screenshots.
   crosshair (hand x . view 0.99 - 1.00), only forearms and hands showing; free aim's shots through the dot at a
   37-health ped 6 m out: Colt45 37 -> 4.5, Uzi -> 11, M4 and Shotgun killed. Melee weapons keep the game's arms.
 
+- **Scopes** (2026-11-01, the user's "fix first person for rocket and sniper, so mouse can work"): the game's own
+  first-person aims on foot - CCam mode 7 (sniper rifle, laser scope), 8 (rocket launcher), 46 (camera), 47 (binoculars)
+  - aim from the stick only; the mouse, sent to them as a right stick, did nothing (first person on or off). The camera
+  hook now writes their front / up / target from the mouse / right stick (CameraAim's look, invert-Y as set; turns
+  slowed by the mode's FOV / 70), turns the body with it and leaves the game its source and FOV. Shots go to the reticle
+  (the sniper's shot and the rocket follow the camera's front). Checked first person on and off: the view turned 0.5 rad
+  left / right and 0.375 up / down by the mouse, a 37-health ped 25 m out and 0.25 rad off killed by the sniper and the
+  laser scope after aiming at it with the mouse, the rocket exploding at the reticle, and the view's direction kept when
+  R1 is let go.
 - **At rest unless aiming** (the user's request, 2026-11-01): the hand 6 cm lower and 3 cm back and in, the barrel 0.3 rad
   down and 0.22 rad in, raised to the crosshair only while R1 / the right mouse button aims (free aim) or locked on -
   eased 200 ms up, 180 ms down (UltimateFP's ADS ease); attacking (state 0x10 / 0x11, or a shot's recoil) raises it in
