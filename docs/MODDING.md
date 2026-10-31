@@ -51,6 +51,19 @@ What the table gives:
   fields with its own before using it.
 - **Control channel and log**: `add_command` (a rig / gamectl command answered with one line), `log`, `game_dir`.
 
+- **VR** (appended to API 1 on 2026-11-01, check `VCS_MOD_API_HAS(api, present_window_copy)`; `VR.asi` uses it,
+  docs/VR_PLAN.md M0): `add_present_hook(fn, user)` - the main thread, once per host frame, after the window's picture
+  and Dear ImGui are drawn and right before the swapchain presents (`present::present()`, src/render/presenter.cpp): where
+  an OpenXR mod ends its frame and waits for the next. The hook gets a `VcsPresentFrame`: the D3D11 device and immediate
+  context, the window's size, and with `render_set_split_layers(1)` the shown picture without the HUD (`scene`, post
+  effects in) and the native HUD layer drawn over black and over white (`hud_black` / `hud_white`: coverage
+  1 - (white - black), premultiplied colour = black), all `ID3D11Texture2D *` RGBA8 at the display's output size, plus
+  `has_3d` (the picture shows 3D: decideShape's choice, not one frame's own), `has_hud`, `layer_serial` and `input_ns`
+  (the steady-clock time of the input snapshot the shown game frame was built from - a VR mod finds the head pose that
+  frame was rendered with by it). `present_window_copy(w, h)` (inside the hook): the window's picture and menus rendered
+  off-screen (the "cinema screen"). The hook may use the immediate context; the renderer sets its state again (VR.asi
+  calls `ClearState` after its copies). The exe's side: `src/modapi/mod_present.cpp`; the split in gs_hw.cpp
+  (`gsHwSetSplitLayers` / `splitLayers` in `composeDisplay`).
 - **Model geometry** (appended to API 1 on 2026-10-31, check `VCS_MOD_API_HAS(api, set_lit_refiner)`; `MeshSmooth.asi`
   uses it): `set_lit_refiner(fn, user)` - the render worker calls `fn` for every lit model batch the native draws take
   (`VcsLitBatch`: kind skinned / rigid / environment-mapped, the strip's VU data as ints, bone encoding, position

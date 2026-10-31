@@ -1042,3 +1042,32 @@ collar when looking away from the body (running backwards) - both the user's rep
 - Measured (hidden runs, 1080p): render worker +0.8 ms on foot among soldiers, +0.4 ms in a car, ~+0.3 ms driving;
   ~60 us to build one new batch (51 ms over a 20 s drive, ~900 batches) - no visible stutter; level 2 costs more
   (16x triangles).
+
+## 2026-11-01 - VR.asi milestone M0: OpenXR, head-tracked mono, panels (the user's request)
+
+- **What the headset shows**: in first person on foot (CameraAim) the 3D picture without the HUD goes in as an OpenXR
+  projection layer, the same image for both eyes, declared with the game camera's own field of view (from the frame's
+  lens, `VcsRenderFrame` fx / fy / cx / cy) and the head pose it was rendered with; everything else (menus, F2 / F5,
+  loading screens, cutscenes, third person, vehicles) goes on a world-locked "cinema" quad, the HUD on its own quad
+  1.5 m ahead. Chosen over rendering at the headset's field of view because the game's FOV, Hor+ shape, render size and
+  the culling (game-internals.md 5) stay as they are - nothing in the renderer or the game's camera maths changes for
+  M0 - while the runtime still gets an exact description (pose + FOV) of the picture: it places it in the world and
+  reprojects it to the newest head pose, so the world stays put despite the game's frame lag. The cost is black around
+  the picture where the headset's FOV is wider: raise CameraAim's first-person field of view for more. Mono at
+  infinity (no stereo) until M1.
+- **Head and body**: the head's yaw / pitch / roll go to CameraAim through exports of CameraAim.asi
+  (`CameraAimSetHeadLook`, `CameraAimHeadLookApplied`) rather than an exe API: the look is CameraAim's own state, and
+  a mod-to-mod call needs nothing from vcs.exe. The mouse / stick still turn the body (CameraAim's yaw); the head adds
+  to it and alone pitches and rolls the view.
+- **Exe API** (appended to API 1 without a version bump): a present hook (`add_present_hook`, D3D11 device / context
+  in `VcsPresentFrame`) right before the window's present - one place for xrEndFrame + xrWaitFrame + xrBeginFrame,
+  which paces the host loop to the headset; `render_set_split_layers` (the picture before the HUD, the HUD over black
+  and white); `present_window_copy` (the window with its menus, off-screen) for the cinema screen. The renderer change
+  is `splitLayers` in `composeDisplay`, off unless a mod asks.
+- **The loader**: the Khronos `openxr_loader.dll` (OpenXR-SDK release-1.1.65, Apache-2.0) built by VCS-mods' CMake
+  and loaded at run time from VR.asi's folder: without it, a runtime, a headset or D3D11, VR.asi logs one line and
+  stays inert (verified). `VCS_VR_RUNTIME=<runtime.dll>` loads a runtime directly (tests: the loader ignores
+  `XR_RUNTIME_JSON` in an elevated process). No OpenXR runtime is installed on the dev machine and installing one was
+  ruled out, so VR.asi was checked against `xr_test_runtime.dll` (VCS-mods `plugins/VR/test`, never installed): a
+  minimal D3D11 runtime that simulates a head and composites what each eye would see into PNGs.
+- **Defaults**: off (Graphics > VR > VR); recentre F7 / Back + L3; cinema 4 m ahead, 5 m wide; HUD 1.5 m.

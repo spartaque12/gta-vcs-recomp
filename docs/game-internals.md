@@ -2589,6 +2589,31 @@ place in the view's frame) and screenshots.
   (the eye at the seated head; not the blend - cause not found), and one frame of the back of his head on a bike
   dismount.
 
+### 12u. VR - what a headset needs from a frame (VR.asi, docs/VR_PLAN.md M0, 2026-11-01)
+
+- **A frame's own `had3d` alternates in play.** VCS draws the 3D into one buffer and copies the finished frame into the
+  displayed one at the start of the next frame (the HUD rides along, `hudOnDraw`), so roughly every other composed
+  `Frame` (`frames.back()` in the executor) has `had3d = 0` while the window shows 3D. The stable answer is decideShape's
+  `Frame::shown` (3D in >= 4 of the last 32 frames, reset by a menu frame): `GSHwLayers.has3d` /
+  `VcsPresentFrame.has_3d` use it. Found by VR.asi's cinema-reason counters (`vr` command: `no3d` counted on every
+  other headset frame, the headset flipping between the head-tracked picture and the cinema screen).
+- **The HUD alone.** The native HUD layer (gs_hw.cpp `HudLayer`) is drawn with the game's GS blends; drawn once over
+  black (B) and once over white (W) it gives coverage a = 1 - (W - B) and premultiplied colour B - exact for blends
+  linear in the destination (all the HUD's), close for additive glow. `splitLayers` in `composeDisplay` does it at the
+  display's output size, before the HUD goes onto the picture.
+- **Which head pose a shown frame was rendered with.** `PSPadBackend::lastInputNs()` is the main thread's input
+  snapshot (`platform::inputSnapshotNs`, taken by `pumpEvents` at the host frame's start or in the frame lead); each
+  `Frame` carries it (`inputNs`) and `gsHwShownInputNs()` names the shown one. A pose handed to the game before that
+  snapshot is the one the frame's camera used: VR.asi keeps its poses by send time and submits the picture with the
+  last one sent before `VcsPresentFrame.input_ns`, so the runtime reprojects it to where the head is now.
+- **The camera's roll.** CCam's up vector (+0x60, written by CameraAim) is honoured by the game's view matrix: a head
+  roll of 8 degrees sent as `up = up0 cos r + right sin r` rolls the picture by 8 degrees (hidden run, window shot).
+- **Order in a host frame** (ps2_runtime.cpp main loop): pumpEvents -> (game frame starts: `ps2HostTick`, unless the
+  frame lead started it) -> `UploadFrame` (the executor runs the ready frames: render hooks, `composeDisplay`) ->
+  Dear ImGui -> `present::drawWindow` -> `present::present()` (the mods' present hook, then the swapchain) ->
+  `waitNextFrame` (frame lead). An OpenXR mod's xrEndFrame + xrWaitFrame + xrBeginFrame in the present hook paces the
+  whole loop to the headset; the next game frame then reads the new head pose.
+
 ## 13. Open questions / next research targets
 
 - Main loop, frame limiter, CTimer (section 4) - milestone 4 (60 fps).

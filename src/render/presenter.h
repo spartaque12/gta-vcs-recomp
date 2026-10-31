@@ -46,6 +46,11 @@ namespace present
     void drawWindow(const Picture &picture, int srcWidth, int srcHeight, float aspect, int windowWidth, int windowHeight,
                     float frameAspect = 0.0f);
     void present();
+    // The mods' present hook (src/modapi/mod_present.cpp: the VR mod): called by present() before the window's frame is
+    // shown. windowCopy: inside it, the window's last picture and Dear ImGui output (drawWindow's) rendered off-screen at
+    // width x height (RGBA8, kept until the next call); null if it can't be made.
+    void setBeforePresent(void (*fn)(void *user), void *user);
+    rhi::Texture *windowCopy(int width, int height);
     void setFrameInputTime(int64_t steadyNs); // the shown frame's input snapshot (rhi::Device::setFrameInputTime)
     // How present() shows frames (the Display > Vertical sync setting; main thread).
     void setPresentMode(int mode); // rhi::Device::PresentMode: 0 Immediate, 1 Vsync, 2 Tearing

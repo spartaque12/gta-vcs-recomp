@@ -32,6 +32,16 @@ namespace present
         std::unique_ptr<rhi::Texture> g_captureTarget;
         std::unique_ptr<rhi::Texture> g_lumaTarget; // frameLuma
         std::vector<uint8_t> g_captureRgba;
+        // the mods' present hook and the window's last picture for windowCopy (presenter.h)
+        void (*g_beforePresent)(void *user) = nullptr;
+        void *g_beforePresentUser = nullptr;
+        std::unique_ptr<rhi::Texture> g_windowCopy;
+        struct LastWindow
+        {
+            Picture picture;
+            int srcWidth = 0, srcHeight = 0;
+            float aspect = 0.0f, frameAspect = 0.0f;
+        } g_lastWindow;
         // Dear ImGui: the backend's own renderer (D3D11) or render::UiRenderer through the RHI (Vulkan)
         std::unique_ptr<render::UiRenderer> g_ui;
 
@@ -158,6 +168,9 @@ namespace present
         g_ui.reset();
         g_captureTarget.reset();
         g_lumaTarget.reset();
+        g_beforePresent = nullptr;
+        g_windowCopy.reset();
+        g_lastWindow = {};
         g_pipeline.reset();
         g_params.reset();
         g_nearest.reset();
@@ -238,13 +251,58 @@ namespace present
         drawPicture(picture, srcWidth, srcHeight, aspect, static_cast<int>(w), static_cast<int>(h), frameAspect);
         uiRender(ImGui::GetDrawData());
         g_device->endPass();
+        g_lastWindow = {picture, srcWidth, srcHeight, aspect, frameAspect}; // windowCopy
     }
 
     rhi::Device::PresentMode g_presentMode = rhi::Device::PresentMode::Immediate;
 
     void setPresentMode(int mode) { g_presentMode = static_cast<rhi::Device::PresentMode>(mode); }
 
-    void present() { g_device->present(g_presentMode); }
+    void present()
+    {
+        if (g_beforePresent)
+            g_beforePresent(g_beforePresentUser);
+        g_device->present(g_presentMode);
+    }
+
+    void setBeforePresent(void (*fn)(void *user), void *user)
+    {
+        g_beforePresent = fn;
+        g_beforePresentUser = user;
+    }
+
+    rhi::Texture *windowCopy(int width, int height)
+    {
+        if (width <= 0 || height <= 0 || width > 8192 || height > 8192)
+            return nullptr;
+        if (!g_windowCopy || g_windowCopy->desc().width != static_cast<uint32_t>(width) ||
+            g_windowCopy->desc().height != static_cast<uint32_t>(height))
+        {
+            rhi::TextureDesc desc;
+            desc.width = static_cast<uint32_t>(width);
+            desc.height = static_cast<uint32_t>(height);
+            desc.usage = rhi::UsageRenderTarget | rhi::UsageSampled;
+            desc.name = "window copy";
+            g_windowCopy = g_device->createTexture(desc);
+            if (!g_windowCopy)
+                return nullptr;
+        }
+        rhi::PassDesc pass;
+        pass.color = g_windowCopy.get();
+        pass.clearColor = true;
+        pass.name = "window copy";
+        g_device->beginPass(pass);
+        const LastWindow &l = g_lastWindow;
+        drawPicture(l.picture, l.srcWidth, l.srcHeight, l.aspect, width, height, l.frameAspect);
+        if (ImDrawData *data = ImGui::GetDrawData(); data && data->Valid && data->DisplaySize.x > 0.0f && data->DisplaySize.y > 0.0f)
+        {
+            ImDrawData scaled = *data; // the window's UI, stretched to the copy's size (as capture)
+            scaled.FramebufferScale = ImVec2(width / data->DisplaySize.x, height / data->DisplaySize.y);
+            uiRender(&scaled);
+        }
+        g_device->endPass();
+        return g_windowCopy.get();
+    }
 
     void setFrameInputTime(int64_t steadyNs) { g_device->setFrameInputTime(steadyNs); }
 

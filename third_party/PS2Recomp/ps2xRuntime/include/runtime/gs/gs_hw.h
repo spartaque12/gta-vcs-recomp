@@ -83,6 +83,21 @@ void gsHwSetHudClassifier(GSHwAnchorFn fn);
 // the displayed picture at the output size (gsHwSetOutputSize) - sharp at any window size, in its aspect. The displayed
 // buffer's latest HUD is drawn; a new scene in that buffer starts the next one. Any thread.
 void gsHwSetHudLayer(bool on);
+// [gta-recomp] Split layers (the VR mod, docs/VR_PLAN.md M0): while on, each composed display also keeps the shown picture
+// without the HUD and the native HUD layer alone, drawn over black and over white (coverage = 1 - (white - black), colour
+// premultiplied = black), all RGBA8 at the display's output size. Any thread.
+struct GSHwLayers
+{
+    rhi::Texture *scene = nullptr, *hudBlack = nullptr, *hudWhite = nullptr;
+    uint32_t width = 0, height = 0;
+    bool has3d = false;  // the picture shows 3D (the recent frames drew it: not a menu / loading screen)
+    bool hasHud = false; // a HUD layer was drawn (else the HUD textures are plain black / white)
+    uint64_t serial = 0; // counts the composed frames that had layers
+};
+void gsHwSetSplitLayers(bool on);
+// The last composed display's layers (main thread; valid until the next one). False when it had none (a picture from CPU
+// VRAM, a black frame, splitting off).
+bool gsHwSplitLayers(GSHwLayers &out);
 // [gta-recomp] Widescreen: how much wider than 4:3 the game's 640-wide frame is shown (display aspect / (4/3)); the
 // native post effects widen their buffers by it so blur and warp keep their 4:3 proportions on screen. Any thread.
 void gsHwSetAspectWidening(float widening);

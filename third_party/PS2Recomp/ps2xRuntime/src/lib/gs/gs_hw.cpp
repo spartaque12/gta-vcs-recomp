@@ -183,6 +183,15 @@ namespace
 void gsHwSetHudSqueeze(float factor) { g_hudSqueeze.store(factor, std::memory_order_relaxed); }
 void gsHwSetHudClassifier(GSHwAnchorFn fn) { g_hudClassifier.store(fn, std::memory_order_relaxed); }
 void gsHwSetHudLayer(bool on) { g_hudLayer.store(on, std::memory_order_relaxed); }
+// [gta-recomp] gsHwSetSplitLayers / gsHwSplitLayers (gs_hw.h): the VR mod's scene and HUD textures
+static std::atomic<bool> g_splitLayers{false};
+static GSHwLayers g_splitOut; // main thread
+void gsHwSetSplitLayers(bool on) { g_splitLayers.store(on, std::memory_order_relaxed); }
+bool gsHwSplitLayers(GSHwLayers &out)
+{
+    out = g_splitOut;
+    return out.scene != nullptr;
+}
 void gsHwSetAlphaDualPass(bool on) { g_alphaDualPass.store(on, std::memory_order_relaxed); }
 void gsHwSetOutputSize(uint32_t width, uint32_t height)
 {
@@ -974,6 +983,7 @@ namespace
 
         void composeDisplay(const Frame &f)
         {
+            g_splitOut = {}; // [gta-recomp] gsHwSplitLayers: none unless this frame's picture comes from a target (splitLayers)
             m_displayW = f.displayW;
             m_displayH = f.displayH;
             uint32_t w = m_displayW * m_scale, h = m_displayH * m_scale;
@@ -1049,6 +1059,7 @@ namespace
                 const float sw = m_displayW * rs.x, sh = m_displayH * rs.y;
                 const bool scaled = std::fabs(w - sw) > 0.5f || std::fabs(h - sh) > 0.5f;
                 blit(shown, {x0 / tw, y0 / th, (x0 + sw) / tw, (y0 + sh) / th}, *m_display, 0, 0, w, h, scaled, true);
+                splitLayers(layer, f); // [gta-recomp] gsHwSetSplitLayers: before the HUD goes onto the picture
                 if (layer)
                     drawHudLayer(*layer, f.displayX, f.displayY);
             }
@@ -2008,8 +2019,42 @@ namespace
                     it->second.stale = true;
         }
 
-        // the layer over m_display, which shows the buffer from PS2 pixel (displayX, displayY)
-        void drawHudLayer(const HudLayer &layer, uint32_t displayX, uint32_t displayY)
+        // [gta-recomp] gsHwSetSplitLayers (the VR mod): the picture as composed so far (no HUD yet) and the HUD layer alone,
+        // over black and over white (the mod takes coverage 1 - (white - black) and the colour over black), at m_display's size
+        void splitLayers(const HudLayer *layer, const Frame &f)
+        {
+            if (!g_splitLayers.load(std::memory_order_relaxed) || !m_display)
+                return;
+            const uint32_t w = m_display->desc().width, h = m_display->desc().height;
+            static const char *const names[3] = {"gs split scene", "gs split hud black", "gs split hud white"};
+            endPass();
+            for (int i = 0; i < 3; ++i)
+                if (!m_split[i] || m_split[i]->desc().width != w || m_split[i]->desc().height != h)
+                    m_split[i] = m_dev.createTexture({w, h, rhi::Format::RGBA8, rhi::UsageRenderTarget | rhi::UsageSampled, names[i]});
+            if (!m_split[0] || !m_split[1] || !m_split[2])
+                return;
+            m_dev.copyTexture(*m_split[0], 0, 0, *m_display, 0, 0, w, h);
+            fill(m_split[1].get(), nullptr, 0, 0, w, h, {0.0f, 0.0f, 0.0f, 1.0f}, 0.0f);
+            fill(m_split[2].get(), nullptr, 0, 0, w, h, {1.0f, 1.0f, 1.0f, 1.0f}, 0.0f);
+            endPass();
+            if (layer)
+            {
+                drawHudLayer(*layer, f.displayX, f.displayY, m_split[1].get());
+                drawHudLayer(*layer, f.displayX, f.displayY, m_split[2].get());
+            }
+            g_splitOut.scene = m_split[0].get();
+            g_splitOut.hudBlack = m_split[1].get();
+            g_splitOut.hudWhite = m_split[2].get();
+            g_splitOut.width = w;
+            g_splitOut.height = h;
+            g_splitOut.has3d = f.shown != 0; // decideShape's: 3D in the recent frames (a frame's own had3d alternates: VCS
+                                             // copies the finished 3D frame into the shown buffer in the next one)
+            g_splitOut.hasHud = layer != nullptr;
+            g_splitOut.serial = ++m_splitSerial;
+        }
+
+        // the layer over m_display (or `target`, of its size), which shows the buffer from PS2 pixel (displayX, displayY)
+        void drawHudLayer(const HudLayer &layer, uint32_t displayX, uint32_t displayY, rhi::Texture *target = nullptr)
         {
             const size_t bytes = layer.vertices.size() * sizeof(HwVertex);
             if (!bytes || !m_display)
@@ -2044,7 +2089,7 @@ namespace
             // the game clears Z to 0 just before its HUD (a full-screen Z-only draw); the HUD's depth tests start there
             fill(nullptr, m_hudDepth.get(), 0, 0, w, h, {0, 0, 0, 0}, 0.0f);
             LayerTarget t;
-            t.color = m_display.get();
+            t.color = target ? target : m_display.get();
             t.depth = m_hudDepth.get();
             t.scaleX = static_cast<float>(w) / static_cast<float>(std::max(m_displayW, 1u));
             t.scaleY = static_cast<float>(h) / static_cast<float>(std::max(m_displayH, 1u));
@@ -2358,6 +2403,8 @@ namespace
         std::vector<HwVertex> m_postVerts;
         size_t m_hudVbCapacity = 0;
         std::unique_ptr<rhi::Texture> m_hudDepth;
+        std::unique_ptr<rhi::Texture> m_split[3]; // [gta-recomp] splitLayers: scene, HUD over black, HUD over white
+        uint64_t m_splitSerial = 0;
         uint32_t m_displayW = 640, m_displayH = 448;
         std::unordered_set<uint32_t> m_reportedBlend;
         uint64_t m_feedbackReported = 0;

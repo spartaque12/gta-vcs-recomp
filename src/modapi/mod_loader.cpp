@@ -1,6 +1,7 @@
 // See mod_loader.h and docs/MODDING.md.
 #include "modapi/mod_loader.h"
 
+#include "modapi/mod_present.h"
 #include "modapi/vcs_mod_api.h"
 
 #include "game/vcs_freecam.h"
@@ -281,6 +282,7 @@ namespace vcs::modapi
             a.set_lit_refiner = [](VcsLitRefineFn fn, void *user) {
                 vcs::hleworld::setLitRefiner(reinterpret_cast<const void *>(fn), user);
             };
+            present_hooks::fillApi(a); // add_present_hook, render_set_split_layers, present_window_copy (mod_present.cpp)
             return a;
         }
 #if defined(__clang__)
