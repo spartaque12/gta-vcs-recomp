@@ -17,6 +17,7 @@ The details are in the docs named in each row; decisions in DECISIONS.md, progre
 | Immersive Weapons Pack | the pack's weapon models (only weapons VCS has), then its animations, then the magazine drop, through the override; `tools/weapon_convert.py` | - | - | done: 27 weapon models + the pack's animations for 7 sets installed in build\mods\stream; magazine drop / moving parts not yet | 12g |
 | Project2DFX | distant lights, more stars, distant cars / boats (ThirteenAG's Project2DFX for VCS), and the mod's palms | Game / Graphics, `p2dfx.*` rows | off | done: lights, stars, distant cars checked; boats / flight ceiling not seen; palms + trees installed; Alpha dual pass (Graphics) | game-internals.md 6l |
 | RenderHook-style graphics | AO, tonemapping, sun shadows ... in the native renderer | - | - | parked | RENDERHOOK_PLAN.md |
+| Mesh smoothing (MeshSmooth) | Zeneric's "Peds And Vehs Mesh Smoothed" idea re-implemented: lit model batches refined on the host (PN triangles, crack-free shared normals), cached; key Insert | Graphics > Mesh smoothing (MeshSmooth): Smooth models, Peds, Vehicles, Other lit models, Level, Strength | on (peds); vehicles / others off (experimental) | peds checked (hidden runs, before / after shots, worker +0.3-0.8 ms); vehicles: layers drawn over the original mesh show through | game-internals.md 6m, DECISIONS.md |
 
 ## Where each mod lives (2026-10-31: mods as DLLs, docs/MODDING.md)
 
@@ -27,6 +28,7 @@ The details are in the docs named in each row; decisions in DECISIONS.md, progre
 | Project2DFX (distant lights, stars, distant cars / boats, draw / detail distance, flight ceiling) | `Project2DFX.asi` - VCS-mods `plugins/Project2DFX` (no longer in vcs.exe) | `build\scripts\Project2DFX.asi` (installed); needs `p2dfx\lights.bin` beside vcs.exe as before. "Alpha dual pass" stays in the exe (a renderer setting) |
 | Streamed file override, Immersive Weapons Pack | vcs.exe: `src/game/vcs_stream_override.cpp`; `tools/weapon_convert.py` | built in; next |
 | Texture packs + HD HUD | vcs.exe (upstream PR #8) | built in (part of the port, not a mod to move) |
+| Mesh smoothing | `MeshSmooth.asi` - VCS-mods `plugins/MeshSmooth`; vcs.exe gives it the lit refiner (`set_lit_refiner`, `src/game/vcs_hle_world.cpp`); check: `tools/meshsmooth_check.py` | `build\scripts\MeshSmooth.asi` once vcs.exe has the refiner (older exes refuse it with a log line) |
 
 `VCS_MODS=0` starts without any DLL mod. Build CameraAim.asi from VCS-mods (its README); it needs a vcs.exe with the
 mod API (this folder's, or the fork's `vcs-mods` branch).

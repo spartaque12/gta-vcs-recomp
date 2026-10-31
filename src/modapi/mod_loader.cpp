@@ -4,6 +4,7 @@
 #include "modapi/vcs_mod_api.h"
 
 #include "game/vcs_freecam.h"
+#include "game/vcs_hle_world.h"
 #include "game/vcs_input.h"
 #include "platform/platform.h"
 #include "ps2_runtime.h"
@@ -277,6 +278,9 @@ namespace vcs::modapi
             a.game_dir = &apiGameDir;
             a.register_function = &apiRegister;
             a.has_function = &apiHas;
+            a.set_lit_refiner = [](VcsLitRefineFn fn, void *user) {
+                vcs::hleworld::setLitRefiner(reinterpret_cast<const void *>(fn), user);
+            };
             return a;
         }
 #if defined(__clang__)

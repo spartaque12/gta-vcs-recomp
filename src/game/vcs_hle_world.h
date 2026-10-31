@@ -20,4 +20,8 @@ namespace vcs::hleworld
     void setMeshCapture(WorldMesh *capture);
     // the next world packet takes its mesh from here when it has the same vertex count (the replay of the same block)
     void setMeshHint(const WorldMesh *hint);
+
+    // The mod API's lit-model refiner (VcsModApi::set_lit_refiner, modapi/vcs_mod_api.h): a mod's replacement geometry
+    // for lit model batches (MeshSmooth.asi). fn: VcsLitRefineFn; nullptr removes it.
+    void setLitRefiner(const void *fn, void *user);
 }

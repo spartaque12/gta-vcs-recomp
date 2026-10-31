@@ -51,6 +51,13 @@ What the table gives:
   fields with its own before using it.
 - **Control channel and log**: `add_command` (a rig / gamectl command answered with one line), `log`, `game_dir`.
 
+- **Model geometry** (appended to API 1 on 2026-10-31, check `VCS_MOD_API_HAS(api, set_lit_refiner)`; `MeshSmooth.asi`
+  uses it): `set_lit_refiner(fn, user)` - the render worker calls `fn` for every lit model batch the native draws take
+  (`VcsLitBatch`: kind skinned / rigid / environment-mapped, the strip's VU data as ints, bone encoding, position
+  scale / offset); a returned `VcsLitRefined` (vertices in the batch's units, a strip of indices, a content key) is drawn
+  in the batch's place: skinned in the exe, lit by vs_lit, the environment pass rebuilt from it. Batches through the VU
+  clipper are not offered. `src/game/vcs_hle_world.cpp` (`refineLit`).
+
 Building: the hooks use the guest calling convention (`VCS_GUEST_CC`, clang's `preserve_none` on x86-64), so a mod is
 built with clang-cl (Windows) or clang (Linux), against the DLL C runtime (`/MD`, as vcs.exe), with the exe's float flags
 (`/arch:AVX2`, `-ffp-contract=off`, `-fno-math-errno`) so host code that reproduces game maths stays bit-exact. VCS-mods' CMake does

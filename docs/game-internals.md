@@ -1207,6 +1207,28 @@ the exe's `-ffp-contract=off`, docs/MODDING.md).
   under the 120 cap on a 240 Hz display in a window (no VRR in a window unless the driver allows it) is what judders - a
   missed 8.3 ms slot shows a frame for three refreshes instead of two.
 
+### 6m. Lit model batches as a mod sees them: mesh smoothing (2026-10-31, MeshSmooth.asi)
+
+Found adapting Zeneric's "Peds And Vehs Mesh Smoothed" (San Andreas: PN triangles + MLS / fairing for peds, OpenSubdiv
+Catmull-Clark / Loop for vehicles - the option names in its .asi and .ini; its cache files `PAVMSC1` are compressed per
+model and were not used).
+- **Not in guest memory**: the streaming heap has 0.1 - 0.4 MB free in play (the measurements above, "Measured headroom");
+  one level of subdivision is 4x the triangles of every ped / vehicle model (~1.8 MB of models loaded), so smoothed
+  meshes cannot live in the game's memory. Done on the host instead, where the native lit draws (6d, `vcs_hle_world.cpp`)
+  read each batch from VU memory.
+- **What a batch is**: one MSCAL of the lit pipelines - skinned (table 0x16: peds, Vic, cutscene characters), rigid
+  (0x19 + 0x4ff: vehicle parts without paint, wheels, weapons, props) or environment-mapped (0x13: vehicle paint) - a
+  triangle strip of up to 256 vertices (`[pos-1].z` vertices, `.w` drawn) whose runs are joined by repeated vertices
+  (no ADC: the native path draws them as one D3D strip). Models are cut into many batches and per material; vertices at
+  the cuts are exact copies (same ints), so geometry computed from a position and the normals seen there agrees across
+  batches. Positions are ints scaled by qwords 42 / 43; normals ints of length ~127 (rigid) / ~128 (skinned, `* 1/128`);
+  skinned inputs are bind-pose ints, overwritten in VU memory by the skinned floats once `skin()` ran (a refiner must
+  read them before the write-back - the first version did not and hashed skinned floats).
+- **Layers drawn over the coarse mesh**: refining a car's paint batches (even split flat, no curvature) showed patches
+  of another layer (an orange rust / dirt shape on the trunk) and the licence plate greyed out: some layers of a vehicle
+  are drawn by paths that still use the original mesh (likely the 0x02c0 re-draws over a resident mesh, 6d; not
+  confirmed), so the refined and the coarse surface fight in depth. Peds show nothing of the kind.
+
 ## 7. Textures: `.XTX`
 
 **Host replacement identity (2026-10-31).** PCSX2 packs match the GS texture as it is sampled, rather than the RAM

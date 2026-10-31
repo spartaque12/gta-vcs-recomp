@@ -17,7 +17,11 @@
 #include "debug/rsl_shadow.h"
 #include "game/vcs_hle_world.h"
 
+#include "modapi/vcs_mod_api.h"
+
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <immintrin.h>
 #include <chrono>
 #include <cfenv>
@@ -1912,6 +1916,179 @@ namespace
         }
     }
 
+    // ---- a mod's refined geometry for lit batches (VcsModApi::set_lit_refiner: MeshSmooth.asi) ---------------------
+    // The refiner gets the batch's VU data as uploaded and may hand back a replacement - more vertices, a longer strip -
+    // which the native lit draws then draw in the batch's place (the skinned one skinned here, the environment pass built
+    // from it). Culling and the clip decision stay the original batch's. Without a refiner nothing changes.
+    std::atomic<VcsLitRefineFn> g_litRefiner{nullptr};
+    std::atomic<void *> g_litRefinerUser{nullptr};
+
+    const VcsLitRefined *refineLit(const uint8_t *vu, int kind, uint32_t posBase, uint32_t nrmBase, uint32_t uvBase,
+                                   uint32_t wBase, uint32_t count, uint32_t drawCount)
+    {
+        const VcsLitRefineFn fn = g_litRefiner.load(std::memory_order_acquire);
+        if (!fn || count == 0u || count > 256u || drawCount < 3u)
+            return nullptr;
+        static thread_local int32_t pos[256][4], nrm[256][4], uv[256][4];
+        static thread_local uint32_t w[256][4];
+        auto at = [vu](uint32_t q) { return vu + (q & (kQwords - 1u)) * 16u; };
+        for (uint32_t i = 0; i < count; ++i)
+        {
+            std::memcpy(pos[i], at(posBase + i), 16);
+            std::memcpy(nrm[i], at(nrmBase + i), 16);
+            std::memcpy(uv[i], at(uvBase + i), 16);
+            if (kind == VCS_LIT_SKINNED)
+                std::memcpy(w[i], at(wBase + i), 16);
+        }
+        VcsLitBatch b{};
+        b.size = sizeof(b);
+        b.kind = kind;
+        b.count = count;
+        b.draw_count = std::min(drawCount, count);
+        b.pos = pos;
+        b.nrm = nrm;
+        b.uv = uv;
+        b.weights = kind == VCS_LIT_SKINNED ? w : nullptr;
+        b.bone_mask = kind == VCS_LIT_SKINNED ? static_cast<uint32_t>(loadI(vu, 0xA8).v[1]) : 0u;
+        std::memcpy(b.pos_scale, loadF(vu, 42).v, 16);
+        std::memcpy(b.pos_offset, loadF(vu, 43).v, 16);
+        const VcsLitRefined *r = fn(g_litRefinerUser.load(std::memory_order_relaxed), &b);
+        if (!r || r->vertex_count == 0u || r->vertex_count > 65535u || r->index_count < 3u || !r->pos || !r->nrm || !r->uv ||
+            !r->indices || (kind == VCS_LIT_SKINNED && !r->weights))
+            return nullptr;
+        return r;
+    }
+
+    // the refined strip as vs_lit's 48-byte vertices (pos, uv, normal, pad)
+    void refinedVertices(const VcsLitRefined *r, const float (*pos)[3], const float (*nrm)[3], std::vector<uint8_t> &out)
+    {
+        out.assign(size_t(r->index_count) * 48u, 0);
+        for (uint32_t i = 0; i < r->index_count; ++i)
+        {
+            const uint32_t v = std::min<uint32_t>(r->indices[i], r->vertex_count - 1u);
+            uint8_t *o = out.data() + size_t(i) * 48u;
+            std::memcpy(o, pos[v], 12);
+            std::memcpy(o + 12, r->uv[v], 12);
+            std::memcpy(o + 24, nrm[v], 12);
+        }
+    }
+
+    // skin() over a refined batch's vertices (the batch's bones in VU memory; SSE lanes = x / y / z; not bit-exact -
+    // nothing to match; bones without weight skipped)
+    void skinRefined(const uint8_t *vu, const VcsLitRefined *r, std::vector<float> &pos, std::vector<float> &nrm)
+    {
+        const uint32_t mask = static_cast<uint32_t>(loadI(vu, 0xA8).v[1]);
+        auto q = [vu](uint32_t at) { return _mm_loadu_ps(reinterpret_cast<const float *>(vu + (at & (kQwords - 1u)) * 16u)); };
+        const __m128 scale = q(42), offset = q(43), inv128 = _mm_set1_ps(bitsToFloat(0x3C000000u));
+        pos.resize(size_t(r->vertex_count) * 3u + 1u); // +1: the last 16-byte store
+        nrm.resize(size_t(r->vertex_count) * 3u + 1u);
+        for (uint32_t i = 0; i < r->vertex_count; ++i)
+        {
+            const float *pi = r->pos[i], *ni = r->nrm[i];
+            const __m128 p = _mm_add_ps(_mm_mul_ps(_mm_setr_ps(pi[0], pi[1], pi[2], 0.0f), scale), offset);
+            const __m128 n = _mm_mul_ps(_mm_setr_ps(ni[0], ni[1], ni[2], 0.0f), inv128);
+            const __m128 p0 = _mm_shuffle_ps(p, p, 0x00), p1 = _mm_shuffle_ps(p, p, 0x55), p2 = _mm_shuffle_ps(p, p, 0xAA);
+            __m128 sum = _mm_setzero_ps(), nr = _mm_setzero_ps();
+            for (int bone = 0; bone < 4; ++bone)
+            {
+                const uint32_t bits = r->weights[i][bone];
+                if (bone > 0 && (bits & ~mask) == 0u)
+                    continue; // weight 0
+                const uint32_t at = 0xA9u + (bits & mask);
+                const __m128 r0 = q(at), r1 = q(at + 1), r2 = q(at + 2), r3 = q(at + 3);
+                if (bone == 0)
+                    nr = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r0, _mm_shuffle_ps(n, n, 0x00)), _mm_mul_ps(r1, _mm_shuffle_ps(n, n, 0x55))),
+                                    _mm_mul_ps(r2, _mm_shuffle_ps(n, n, 0xAA)));
+                const __m128 t = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r0, p0), _mm_mul_ps(r1, p1)), _mm_add_ps(_mm_mul_ps(r2, p2), r3));
+                sum = _mm_add_ps(sum, _mm_mul_ps(t, _mm_set1_ps(bitsToFloat(bits))));
+            }
+            _mm_storeu_ps(pos.data() + size_t(i) * 3u, sum);
+            _mm_storeu_ps(nrm.data() + size_t(i) * 3u, nr);
+        }
+    }
+
+    // the environment pass (0x5b1 + kick 0x2b2, tag 50) over a refined strip: fastOutputs' rigid path and envST from the
+    // refined floats - the arithmetic the original batch's kicks get - in kicks of up to 2048 strip vertices (two shared
+    // between kicks: the GS draws no triangle across a kick)
+    void envRefinedKicks(const uint8_t *vu, uint32_t headerW, const VcsLitRefined *r,
+                         std::vector<std::vector<uint8_t>> &kicks)
+    {
+        Vec4 m[4];
+        foldMatrix(vu, 28, m);
+        const float inv255 = bitsToFloat(0x3B808081u);
+        Vec4 uvm[3] = {loadF(vu, 44), loadF(vu, 45), loadF(vu, 46)};
+        for (auto &row : uvm)
+            for (int k = 0; k < 3; ++k)
+                row.v[k] *= inv255;
+        const bool fog = (loadI(vu, 52).v[1] & 2) != 0;
+        const Vec4 fogp = loadF(vu, 53);
+        const LitLights lights = rigidLights(vu);
+        const uint32_t param = static_cast<uint32_t>(loadI(vu, 41).v[1]) & 0x3FFu;
+        const float scale = bitsToFloat(0x3B800000u);
+        Vec4 em[3] = {loadF(vu, param + 5u), loadF(vu, param + 6u), loadF(vu, param + 7u)};
+        for (auto &row : em)
+        {
+            row.v[0] = row.v[0] * scale;
+            row.v[1] = row.v[1] * scale;
+        }
+        static thread_local std::vector<std::array<uint32_t, 12>> outs;
+        outs.resize(r->vertex_count);
+        for (uint32_t i = 0; i < r->vertex_count; ++i)
+        {
+            const Vec4 p = transform(m, Vec4{{r->pos[i][0], r->pos[i][1], r->pos[i][2], 0.0f}});
+            const float *uv = r->uv[i];
+            float st[3];
+            for (int k = 0; k < 3; ++k)
+            {
+                float acc = uvm[0].v[k] * uv[0];
+                acc = acc + uvm[1].v[k] * uv[1];
+                st[k] = acc + uvm[2].v[k] * uv[2];
+            }
+            const float q = 1.0f / p.v[3];
+            const float qq = st[2] * q; // 0x5b1's "Q": the output's third ST lane
+            const float *n = r->nrm[i];
+            float env[2];
+            for (int k = 0; k < 2; ++k)
+            {
+                float acc = em[0].v[k] * n[0];
+                acc = acc + em[1].v[k] * n[1];
+                const float x = acc + em[2].v[k] * n[2];
+                env[k] = (0.5f + x) * qq;
+            }
+            uint32_t *e = outs[i].data();
+            const float stq[4] = {env[0], env[1], qq, p.v[3]};
+            std::memcpy(e, stq, 16);
+            int32_t rgb[3];
+            litColour(lights, n, rgb);
+            e[4] = static_cast<uint32_t>(rgb[0]);
+            e[5] = static_cast<uint32_t>(rgb[1]);
+            e[6] = static_cast<uint32_t>(rgb[2]);
+            e[7] = static_cast<uint32_t>(lights.alpha);
+            for (int k = 0; k < 3; ++k)
+                e[8 + k] = static_cast<uint32_t>(ftoi(p.v[k] * q, 16.0f));
+            float f = 0.0f;
+            if (fog)
+                f = std::max(std::min(fogp.v[3] * p.v[3] + 1.0f * fogp.v[2], 255.0f), 0.0f);
+            e[11] = static_cast<uint32_t>(ftoi(f, 16.0f));
+        }
+        const IVec4 t = loadI(vu, 50);
+        kicks.resize(2); // [0] unused here, [1] the TEXFLUSH packet (envKicks)
+        for (uint32_t from = 0; from + 2u < r->index_count; from += 2046u)
+        {
+            const uint32_t n = std::min<uint32_t>(2048u, r->index_count - from);
+            // x: the header's .w sign-extended as kickPacket has it, with this kick's NLOOP
+            const uint32_t x = static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>((headerW & 0x8000u) | n)));
+            const uint32_t tag[4] = {x, static_cast<uint32_t>(t.v[1]), static_cast<uint32_t>(t.v[2]),
+                                     static_cast<uint32_t>(t.v[3])};
+            std::vector<uint8_t> k(16u + size_t(n) * 48u);
+            std::memcpy(k.data(), tag, 16);
+            for (uint32_t i = 0; i < n; ++i)
+                std::memcpy(k.data() + 16u + size_t(i) * 48u,
+                            outs[std::min<uint32_t>(r->indices[from + i], r->vertex_count - 1u)].data(), 48);
+            kicks.push_back(std::move(k));
+        }
+    }
+
     // ---- native drawing -------------------------------------------------------------------------------------------
     struct NativeStats
     {
@@ -2144,7 +2321,9 @@ namespace
 
     NativeStats g_nativeLit, g_nativeRigid;
 
-    bool drawNativeRigid(const ps2hle::MscalContext &c)
+    // refineKind: VCS_LIT_RIGID / VCS_LIT_ENV (the refiner's batch kind); *refinedOut = the refined geometry drawn
+    bool drawNativeRigid(const ps2hle::MscalContext &c, int refineKind = VCS_LIT_RIGID,
+                         const VcsLitRefined **refinedOut = nullptr)
     {
         uint8_t *vu = c.vuData;
         const IVec4 i47 = loadI(vu, 47), i48 = loadI(vu, 48);
@@ -2191,13 +2370,24 @@ namespace
         key = hashQwords(vu, nrmBase, count, key);
         d.meshKey = key;
         static thread_local std::vector<uint8_t> verts;
-        verts.assign(size_t(count) * 48u, 0);
-        for (uint32_t i = 0; i < count; ++i)
+        if (const VcsLitRefined *r = refineLit(vu, refineKind, posBase, nrmBase, uvBase, 0u, count, d.drawCount))
         {
-            uint8_t *v = verts.data() + size_t(i) * 48u;
-            std::memcpy(v, itof(loadI(vu, posBase + i)).v, 12);
-            std::memcpy(v + 12, itof(loadI(vu, uvBase + i)).v, 12);
-            std::memcpy(v + 24, itof(loadI(vu, nrmBase + i)).v, 12);
+            refinedVertices(r, r->pos, r->nrm, verts);
+            d.vertexCount = d.drawCount = r->index_count;
+            d.meshKey = (key ^ 0x534D4F4F5448ull) * 0x9E3779B97F4A7C15ull ^ r->key;
+            if (refinedOut)
+                *refinedOut = r;
+        }
+        else
+        {
+            verts.assign(size_t(count) * 48u, 0);
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                uint8_t *v = verts.data() + size_t(i) * 48u;
+                std::memcpy(v, itof(loadI(vu, posBase + i)).v, 12);
+                std::memcpy(v + 12, itof(loadI(vu, uvBase + i)).v, 12);
+                std::memcpy(v + 24, itof(loadI(vu, nrmBase + i)).v, 12);
+            }
         }
         d.vertices = verts.data();
         float *k = d.constants;
@@ -2250,6 +2440,9 @@ namespace
             return false;
         ++g_nativeLit.packets;
         skin(vu, lp);
+        // a mod's refined batch (refineLit) from the inputs, before the write-back below replaces them
+        const VcsLitRefined *refined =
+            refineLit(vu, VCS_LIT_SKINNED, lp.posBase, lp.nrmBase, lp.uvBase, lp.wBase, lp.count, lp.nloop);
         // the skinning stage writes the skinned position (xyz) and normal (xyz) back over its inputs; a later pass
         // over the same buffer (stage table 0x13) reads them
         for (uint32_t i = 0; i < lp.count; ++i)
@@ -2274,14 +2467,26 @@ namespace
         d.vertexCount = lp.count;
         d.drawCount = lp.nloop;
         static thread_local std::vector<uint8_t> verts;
-        verts.assign(size_t(lp.count) * 48u, 0);
-        for (uint32_t i = 0; i < lp.count; ++i)
+        if (const VcsLitRefined *r = refined)
         {
-            uint8_t *v = verts.data() + size_t(i) * 48u;
-            const Vec4 uv = itof(loadI(vu, lp.uvBase + i));
-            std::memcpy(v, lp.pos[i], 12);
-            std::memcpy(v + 12, uv.v, 12);
-            std::memcpy(v + 24, lp.nrm[i], 12);
+            // (the original batch's skinned write-back above stays: the later pass reads it)
+            static thread_local std::vector<float> spos, snrm;
+            skinRefined(vu, r, spos, snrm);
+            refinedVertices(r, reinterpret_cast<const float (*)[3]>(spos.data()),
+                            reinterpret_cast<const float (*)[3]>(snrm.data()), verts);
+            d.vertexCount = d.drawCount = r->index_count;
+        }
+        else
+        {
+            verts.assign(size_t(lp.count) * 48u, 0);
+            for (uint32_t i = 0; i < lp.count; ++i)
+            {
+                uint8_t *v = verts.data() + size_t(i) * 48u;
+                const Vec4 uv = itof(loadI(vu, lp.uvBase + i));
+                std::memcpy(v, lp.pos[i], 12);
+                std::memcpy(v + 12, uv.v, 12);
+                std::memcpy(v + 24, lp.nrm[i], 12);
+            }
         }
         d.vertices = verts.data();
         float *k = d.constants;
@@ -2370,11 +2575,14 @@ namespace
             ++g_nativeEnv.clipped;
             return true;
         }
-        if (!envKicks(vu, c.top, kicks) || !drawNativeRigid(c))
+        const VcsLitRefined *refined = nullptr;
+        if (!envKicks(vu, c.top, kicks) || !drawNativeRigid(c, VCS_LIT_ENV, &refined))
         {
             ++g_nativeEnv.fallback;
             return false;
         }
+        if (refined) // the environment pass over the refined geometry pass 1 drew
+            envRefinedKicks(vu, static_cast<uint32_t>(loadI(vu, posBase - 1u).v[3]), refined, kicks);
         const int rounding = sseRounding();
         setSseRounding(g_callerRounding);
         gsSetPath1Producer(c.startPc, true); // draw sources: a C++ reproduction sends these
@@ -2987,3 +3195,8 @@ namespace
 
 void vcs::hleworld::setMeshCapture(WorldMesh *capture) { t_meshCapture = capture; }
 void vcs::hleworld::setMeshHint(const WorldMesh *hint) { t_meshHint = hint; }
+void vcs::hleworld::setLitRefiner(const void *fn, void *user)
+{
+    g_litRefinerUser.store(user, std::memory_order_relaxed);
+    g_litRefiner.store(reinterpret_cast<VcsLitRefineFn>(const_cast<void *>(fn)), std::memory_order_release);
+}

@@ -1022,3 +1022,23 @@ every hip / fire anim). Rows: Game > First person (Arms and gun in view, gun pos
 In the same change first person keeps the view while getting in and out of vehicles and moves the eyes ahead of the
 collar when looking away from the body (running backwards) - both the user's reports (12t).
 
+## 2026-10-31 - MeshSmooth.asi: model smoothing on the host, through a lit-geometry hook
+
+- **Where**: not at model load in guest memory (the streaming heap is full: game-internals.md 6m), but on the host at the
+  native lit draws: vcs.exe hands each lit batch (VU data as ints) to a mod's refiner (`set_lit_refiner`, appended to API
+  1) and draws what it returns in the batch's place - a longer strip of the same vertex layout (vs_lit's pipeline is a
+  strip; degenerate joins instead of a renderer change, so gs_hw.cpp is untouched). Skinned batches are refined in bind
+  pose and skinned in the exe (interpolated bone weights); the environment pass is rebuilt from the refined vertices
+  with the same arithmetic as the original's kicks. Batches through the VU clipper stay coarse.
+- **How**: PN triangles (level 1: each triangle into 4, ~4 strip vertices per original triangle by emitting each strip
+  run as two strips), not SA's MLS / fairing / OpenSubdiv: those need the whole mesh's adjacency, and a model arrives
+  as independent batches. Crack-free by construction: edge curves depend only on the edge's positions and on normals
+  shared by all users of a position (a global table, filled before a batch is refined at its third sighting), evaluated
+  in one orientation; creases take the normal the edge lies flattest in; open boundaries (an edge with one opposite
+  corner over all batches) stay straight. Cached per batch content (CPU arrays; the GPU's mesh cache keys rigid ones).
+- **Defaults**: on, peds on, level 1, strength 100 (peds x0.65, SA's de-grow); vehicles and "other lit models" **off**
+  (experimental): vehicle layers drawn over the original mesh (plate, rust / dirt) fight the refined surface
+  (game-internals.md 6m). Next for vehicles: refine those re-draw paths too, then turn them on.
+- Measured (hidden runs, 1080p): render worker +0.8 ms on foot among soldiers, +0.4 ms in a car, ~+0.3 ms driving;
+  ~60 us to build one new batch (51 ms over a 20 s drive, ~900 batches) - no visible stutter; level 2 costs more
+  (16x triangles).
