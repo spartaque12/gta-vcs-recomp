@@ -64,7 +64,8 @@ git; no replacement image belongs in a source release.
 
 `python tools/texture_check.py build/texture_check/latest --validate-pack` checks the loader, decodes every supported
 PNG in the pack, then runs a hidden five-location city check with screenshots and performance readings. Use
-`--loader-only --validate-pack` to validate images without booting the game; `--pack PATH` selects another pack.
+`--loader-only --validate-pack` to validate images without booting the game; `--pack PATH` selects another pack,
+`--port N` the game check's control port (default 47664) when other rigs run beside it.
 All fixtures and cards are under `build/`, never the player's card. For a cache-pressure check, set
 `VCS_TEXTURE_CACHE_MB=64` and `PS2X_HW_ANISO=0`. The game check rejects repeated reloads of active textures.
 
@@ -74,3 +75,17 @@ captures versus replacements disabled had mean absolute differences 0.051 / 0.12
 Both anisotropic 16x sampling (the local settings) and the full-resolution nearest/bilinear path were exercised.
 The small-cache run exposed eviction on empty alternate VBlanks; keeping two frames of history prevents that churn.
 Linux/Vulkan uses the same loader and existing sampling shaders, but has not been run for this change.
+
+Checked again 2026-10-31 after this change (upstream PR #8) was merged into the v0.0.1 release folder (DECISIONS.md),
+with "HD HUD - SLUS-21590 - PS Icons" (160 PNGs) in `build/textures/SLUS-21590/replacements/`: found by the automatic
+discovery from a copy of `vcs.exe` in `build/hdhud_exe/` (its parent's `textures/`); hidden runs from a copy of the
+user's card at Fort Baxter and two city spots matched and loaded 25 pack files (radar sections and blips, the weapon
+icon, the HUD's fonts), no failures, nothing indexed with the option off. The full `texture_check.py` (empty card,
+five spots, `--port 47685`) passes: 160 PNGs decode, 25 matched and loaded - 29 different files over both checks.
+The SPIR-V of every `gs_draw.hlsl` variant (`tools/hlsl_spirv.py`) is unchanged by the PR.
+**Small text at low resolutions**: draws that do not take the anisotropic sampler (nearest filtering or a region
+clamp, e.g. the HUD's clock and money digits) read the replacement at its full size without mips, so a 4096 px atlas
+for a 256 px texture (16x) loses thin strokes when the picture is far smaller: at the hidden test's 1.5x (Match
+window, 960x672) the zeros' holes and the clock's colon drop out; at Internal resolution 4x the digits are clean.
+The radar and the weapon icon look sharper at both. A mip level chosen from the screen footprint in `fetchRtFull`
+would fix the small sizes; not done yet. Captures: `build/hdhud/` (`compare*/`, `zoom*/`: off left, on right).

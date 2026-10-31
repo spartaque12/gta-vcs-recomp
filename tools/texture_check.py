@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the PNG replacement loader and an installed PCSX2 pack (hidden, isolated card).
 
-    python tools/texture_check.py [OUT] [--pack textures/SLUS-21590] [--loader-only]
+    python tools/texture_check.py [OUT] [--pack textures/SLUS-21590] [--loader-only] [--port 47664]
 
 Loader checks need a C++20 compiler, no game/disc: legacy flags, palette identity, recursive indexing,
 non-power-of-two PNG decoding, unchanged alpha, asynchronous deduplication/reload, corrupt-file fallback,
@@ -179,10 +179,10 @@ def loader_checks(out, validate_pack=None):
         print(r.stdout.strip(), flush=True)
 
 
-def game_check(out, pack):
+def game_check(out, pack, port=47664):
     env = {'VCS_TEXTURE_REPLACEMENTS': '1', 'VCS_TEXTURE_PACK': str(pack),
            'VCS_ASPECT': '43', 'VCS_FPS': '60', 'VCS_PERF_OVERLAY': '0'}
-    g = rig.Game.start(name='texture_check', seconds=300, data_dir=str(out / 'data'), port=47664, env=env)
+    g = rig.Game.start(name='texture_check', seconds=300, data_dir=str(out / 'data'), port=port, env=env)
     results = {}
     try:
         g.new_game()
@@ -230,6 +230,7 @@ def main():
     ap.add_argument('--pack', default='textures/SLUS-21590')
     ap.add_argument('--loader-only', action='store_true')
     ap.add_argument('--validate-pack', action='store_true', help='decode every full-texture PNG in --pack without running the game')
+    ap.add_argument('--port', type=int, default=47664, help='control port of the game check (side by side with other runs)')
     a = ap.parse_args()
     out = Path(a.out).resolve()
     root = (Path(tc.ROOT) / 'build').resolve()
@@ -238,7 +239,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     loader_checks(out, a.pack if a.validate_pack else None)
     if not a.loader_only:
-        game_check(out, Path(a.pack).resolve())
+        game_check(out, Path(a.pack).resolve(), a.port)
 
 
 if __name__ == '__main__':
