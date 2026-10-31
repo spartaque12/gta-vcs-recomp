@@ -2574,6 +2574,11 @@ place in the view's frame) and screenshots.
   crosshair (hand x . view 0.99 - 1.00), only forearms and hands showing; free aim's shots through the dot at a
   37-health ped 6 m out: Colt45 37 -> 4.5, Uzi -> 11, M4 and Shotgun killed. Melee weapons keep the game's arms.
 
+- **At rest unless aiming** (the user's request, 2026-11-01): the hand 6 cm lower and 3 cm back and in, the barrel 0.3 rad
+  down and 0.22 rad in, raised to the crosshair only while R1 / the right mouse button aims (free aim) or locked on -
+  eased 200 ms up, 180 ms down (UltimateFP's ADS ease); attacking (state 0x10 / 0x11, or a shot's recoil) raises it in
+  80 ms, so hip fire shows the gun up. Checked: M4, Colt45, Uzi walking (ads 0), R1 held (ads 1, barrel . view 1.00),
+  hip fire (ads 1).
 - **Follow-up (the user's video 23-23)**: the eye-jump guard held the old eye behind him when a backwards run stopped
   (our code turns the body to the view in one frame) - now only while the ped has a vehicle. Getting in / out his
   position (+0x30) lags the anim by metres, so the bone hook's "within 2 m of the ped" test skipped those draws (head
