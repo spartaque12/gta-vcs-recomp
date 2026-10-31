@@ -42,6 +42,7 @@ namespace
     std::atomic<uint32_t> g_frameW{0}, g_frameH{0};     // [gta-recomp] gsHwSetFrameSize
     std::atomic<bool> g_alphaDualPass{false};           // [gta-recomp] gsHwSetAlphaDualPass
     constexpr uint32_t kDualPassRef = 0x40u;            // its first pass: alpha >= half (0x80 = opaque), skygfx's 128 of 255
+    std::atomic<float> g_windX{0.0f}, g_windY{0.0f}, g_windStrength{0.0f}; // [gta-recomp] gsHwSetWind
     struct TargetRole                                   // [gta-recomp] gsHwSetTargetRole
     {
         uint32_t fbp = 0, fbw = 0;
@@ -215,6 +216,12 @@ bool gsHwSplitLayers(GSHwLayers &out)
     return out.scene != nullptr;
 }
 void gsHwSetAlphaDualPass(bool on) { g_alphaDualPass.store(on, std::memory_order_relaxed); }
+void gsHwSetWind(float x, float y, float strength)
+{
+    g_windX.store(x, std::memory_order_relaxed);
+    g_windY.store(y, std::memory_order_relaxed);
+    g_windStrength.store(strength, std::memory_order_relaxed);
+}
 void gsHwSetOutputSize(uint32_t width, uint32_t height)
 {
     g_outputW.store(width, std::memory_order_relaxed);
@@ -863,6 +870,11 @@ namespace
                     d.mipLevels = m_anisotropy ? 0u : 1u; // [gta-recomp] anisotropic filtering samples a mip chain
                     const auto *pixels = t.replacement ? t.replacement->pixels.data() : t.pixels.data(); // [gta-recomp]
                     m_textures[t.key] = m_dev.createTexture(d, pixels, t.w * 4u);
+                    // [gta-recomp] alpha dual pass: only textures with texels under its reference can need the second pass
+                    if (std::any_of(pixels, pixels + size_t(t.w) * t.h, [](uint32_t p) { return (p >> 24) - 1u < kDualPassRef - 1u; }))
+                        m_seeThrough.insert(t.key);
+                    else
+                        m_seeThrough.erase(t.key);
                     // [gta-recomp] PS2X_HW_DUMP_TEX=<key hex>: write that decoded texture (hw_tex_<key>.ppm, alpha dropped)
                     static const uint64_t dumpTex = std::getenv("PS2X_HW_DUMP_TEX") ? std::strtoull(std::getenv("PS2X_HW_DUMP_TEX"), nullptr, 16) : 0u;
                     if (dumpTex && t.key == dumpTex)
@@ -880,6 +892,7 @@ namespace
                 }
                 case CmdType::TexDelete:
                     m_textures.erase(f.texDeletes[c.index]);
+                    m_seeThrough.erase(f.texDeletes[c.index]); // [gta-recomp]
                     break;
                 case CmdType::RtDrop:
                     endPass();
@@ -3271,12 +3284,23 @@ namespace
                 else { mask = static_cast<uint8_t>(mask & 7u); zwrite = false; } // RGB_ONLY
             }
             else if (s.ate && (s.atst == 5u || s.atst == 6u) && s.aref < kDualPassRef && zwrite && b.enable && s.tme &&
-                     s.ba == 0u && s.bb == 1u && s.bc == 0u && s.bd == 1u && g_alphaDualPass.load(std::memory_order_relaxed))
+                     s.ba == 0u && s.bb == 1u && s.bc == 0u && s.bd == 1u && g_alphaDualPass.load(std::memory_order_relaxed) &&
+                     [&] {
+                         const bool see = s.texIsRt || (s.tcc && m_seeThrough.contains(s.texKey));
+                         static const bool log = std::getenv("PS2X_HW_DUALPASS_LOG") != nullptr; // how many draws take it
+                         static uint64_t n[2] = {};
+                         if (log && ++n[see] && (n[0] + n[1]) % 20000u == 0u)
+                             std::fprintf(stderr, "[gs-hw] dual pass: %llu two passes, %llu opaque textures (one)\n",
+                                          (unsigned long long)n[1], (unsigned long long)n[0]);
+                         return see;
+                     }())
             {
                 // [gta-recomp] alpha dual pass (gsHwSetAlphaDualPass, as skygfx's for GTA III / VC): an alpha-blended draw
                 // tested only against a low reference (the world's GREATER 8) writes depth for half-transparent texels,
                 // which hides everything drawn after it behind them - foliage showed the sky through its leaves. First
-                // the texels at half alpha and up with depth, then the rest blended without depth writes.
+                // the texels at half alpha and up with depth, then the rest blended without depth writes. Opaque textures
+                // (no texel under the reference, or alpha not from the texture) keep the single pass: filtered, their alpha
+                // never drops below it, so the second pass would draw nothing at a full draw's cost.
                 c.atstArefAfailRt[0] = 5; // GEQUAL
                 c.atstArefAfailRt[1] = static_cast<int32_t>(kDualPassRef);
                 submit(drawPipeline(b, mask, depthOn, s.ztst, zwrite, s.mode, drawSampleMode(c)));
@@ -3326,6 +3350,7 @@ namespace
         std::unordered_map<uint32_t, DroppedSize> m_droppedSize; // [gta-recomp] dropRt / rtFor
         std::unordered_map<uint32_t, Depth> m_depth;
         std::unordered_map<uint64_t, std::unique_ptr<rhi::Texture>> m_textures;
+        std::unordered_set<uint64_t> m_seeThrough; // [gta-recomp] textures with texels under the alpha dual pass's reference
         std::unique_ptr<rhi::Texture> m_display, m_feedback;
         std::unordered_map<uint32_t, HudLayer> m_hud; // [gta-recomp] native HUD layer per frame buffer
         // [gta-recomp] Per frame buffer, the shape (wide or 4:3) of the frame that last drew into it; a plain copy carries
@@ -5094,6 +5119,22 @@ namespace
             nd.constants[124] = state.context.xyoffset.ofx / 16.0f;
             nd.constants[125] = state.context.xyoffset.ofy / 16.0f;
             nd.constants[126] = zs;
+            // [gta-recomp] wind sway (gs_draw.hlsl vs_world, nat[15 - 17]) for a texture of the wind list
+            if (draw.kind == GSNativeDraw::VcsWorld && !m_windTex.empty())
+                if (const float strength = g_windStrength.load(std::memory_order_relaxed); strength > 0.0f)
+                    if (const auto w = m_windTex.find(s.texKey); w != m_windTex.end())
+                    {
+                        float *c = nd.constants + 60;
+                        c[0] = g_windX.load(std::memory_order_relaxed);
+                        c[1] = g_windY.load(std::memory_order_relaxed);
+                        c[2] = strength;
+                        c[3] = 0.0f;
+                        std::memcpy(c + 4, w->second.metresPerUnit, sizeof(float) * 3);
+                        c[7] = 0.0f;
+                        c[8] = w->second.footZ;
+                        c[9] = w->second.invHeight;
+                        c[10] = c[11] = 0.0f;
+                    }
             f.cmds.push_back({CmdType::NativeDraw, static_cast<uint32_t>(f.nativeDraws.size())});
             f.nativeDraws.push_back(nd);
             f.nativeVertices += draw.drawCount;
@@ -5528,7 +5569,16 @@ namespace
                     level.textureHeight = std::max<uint16_t>(1, d.textureHeight >> mip);
                 }
                 if (!appendReplacementHashLevel(level)) return 0;
-                if (const uint32_t id = m_replacements.find(render::textureHash(m_replacementHashBytes.data(), m_replacementHashBytes.size()), palette, bits))
+                const uint64_t pixels = render::textureHash(m_replacementHashBytes.data(), m_replacementHashBytes.size());
+                if (!mip) // [gta-recomp] gsHwSetWind: named by the wind list
+                    m_foundWind = m_replacements.wind(pixels, palette, bits);
+                if (!mip && m_replacements.dumping()) // [gta-recomp] VCS_TEXTURE_DUMP: the base level under its name
+                {
+                    m_cpu.DecodeTexture(d, m_replacementScratch);
+                    if (m_replacementScratch.size() == size_t(d.textureWidth) * d.textureHeight)
+                        m_replacements.dump(pixels, palette, bits, d.textureWidth, d.textureHeight, m_replacementScratch.data());
+                }
+                if (const uint32_t id = m_replacements.find(pixels, palette, bits))
                     return id;
             }
             return 0;
@@ -5623,7 +5673,17 @@ namespace
             {
                 if (m_replacementAliases.size() >= 32768u) m_replacementAliases.clear();
                 auto [alias, added] = m_replacementAliases.try_emplace(key, 0);
-                if (added) alias->second = findReplacement(d);
+                if (added)
+                {
+                    m_foundWind = nullptr;
+                    alias->second = findReplacement(d);
+                    if (m_foundWind) // [gta-recomp] gsHwSetWind: the texture and its replacement sway
+                    {
+                        if (m_windTex.size() >= 4096u) m_windTex.clear();
+                        m_windTex[key] = *m_foundWind;
+                        if (alias->second) m_windTex[render::TextureReplacements::key(alias->second)] = *m_foundWind;
+                    }
+                }
                 if (alias->second)
                 {
                     const uint64_t replacementKey = render::TextureReplacements::key(alias->second);
@@ -5996,6 +6056,9 @@ namespace
         std::vector<uint8_t> m_replacementHashBytes;
         std::vector<uint32_t> m_replacementScratch;
         std::unordered_map<uint64_t, uint32_t> m_replacementAliases;
+        // [gta-recomp] gsHwSetWind: texture keys (originals and their replacements) of the wind list's textures
+        std::unordered_map<uint64_t, render::WindModel> m_windTex;
+        const render::WindModel *m_foundWind = nullptr; // findReplacement's wind list entry
         std::unordered_map<uint64_t, size_t> m_replacementSizes;
         size_t m_replacementBytes = 0;
         GSTransferCommand m_transfer{};

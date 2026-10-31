@@ -2443,6 +2443,60 @@ Found with RAM dumps of a hidden run (the rig's `dump`) and the models read from
   say, half alpha is blended over what is already drawn and also hides everything drawn after it behind it. Foliage
   textures with broad half-transparent areas (VC PC textures box-filtered to a quarter) showed the sky through as pale
   patches; with alpha 0 / 128 only the bilinear edge band between texels is left half transparent.
+- **Where each model's trunk stands (its foot)** - the VCS models' vertices decoded from the disc (every V3-16 UNPACK
+  to address 1, through the geometry header's scale +0x28 and offset +0x34: `veg_convert.vcs_verts`); the foot is the
+  lowest vertex's z and the middle (x / y) of everything within 0.5 m of it - the trunk's bottom ring in every model,
+  VCS's and both packs' (checked by material: the lowest triangles are bark in all of them). In model space, metres:
+
+  | model | VCS box min - max | VCS foot | VC pack foot (unscaled) | BSOR foot (unscaled) |
+  |---|---|---|---|---|
+  | veg_palm01 | (-28.9 -21.1 -1.14) - (4.6 6.4 40.0) | (-0.71 0.50 -1.14) | (-0.10 0.05 -0.68) | (1.87 3.10 -2.11) |
+  | veg_palm02 | (-7.1 -2.6 0.14) - (13.9 23.2 41.7) | (0.14 0.00 0.14) | (0.06 0.07 -0.71) | (0.08 0.35 0.10) |
+  | veg_palm03 | (-11.7 -1.3 -0.92) - (15.9 37.2 37.0) | (0.14 -0.53 -0.92) | (-0.08 -0.07 -0.73) | (0.14 -0.02 -0.85) |
+  | veg_palm04 | (-15.9 -13.6 -0.67) - (14.0 13.7 36.9) | (-0.86 0.01 -0.67) | (0.00 0.10 -0.37) | (-0.57 -0.02 -0.10) |
+  | veg_palmbig14 | (-9.2 -8.0 -0.83) - (8.4 9.2 18.6) | (-0.04 0.06 -0.83) | (-0.03 0.10 -0.05) | (0.07 0.11 -0.17) |
+  | veg_palwee01 | (-7.4 -0.8 -0.51) - (10.1 23.5 23.4) | (0.09 -0.30 -0.51) | (-0.05 -0.05 -0.73) | (0.11 -0.05 -0.81) |
+  | veg_palwee02 | (-6.0 -5.6 -0.10) - (5.5 5.9 27.8) | (-0.05 0.11 -0.10) | (0.01 0.07 -0.71) | (-0.05 0.11 0.63) |
+  | veg_tree3 | (-8.4 -8.4 0.00) - (8.7 10.0 25.9) | (-0.01 0.29 0.00) | (0.11 -0.33 0.00) | (0.00 0.33 0.00) |
+  | veg_treea1 | (-8.8 -8.5 0.00) - (8.3 9.9 35.3) | (-0.40 0.26 0.00) | (-0.13 -0.03 0.03) | (-0.39 0.29 0.00) |
+  | veg_treea3 | (-4.6 -4.1 -0.33) - (4.4 5.7 13.4) | (-0.16 0.54 -0.33) | (-0.13 -0.03 0.03) | (-0.16 0.61 -0.41) |
+  | veg_treeb1 | (-5.4 -5.7 0.00) - (6.1 6.7 17.5) | (0.22 0.19 0.00) | (-0.13 -0.03 0.03) | (0.24 0.19 0.00) |
+
+  So the origin is not the foot: VCS's palms sink theirs 0.1 - 1.1 m (veg_palm02 0.14 m above), the packs' differ
+  again, and BSOR's veg_palm01 stands 3.6 m off its origin. Scaled about the origin alone (the converter until
+  2026-10-31: `vhi.z / hi.z`), the VC pack's veg_palmbig14 stood 0.76 m above its lawn - the user's report: its trunk
+  on the low wall beside it - veg_palm04 0.38 m, veg_treea3 0.34 m, while veg_palm02 sank 0.96 m and veg_palwee02
+  0.59 m. The converter now scales by the full height (`(vhi.z - vlo.z) / (hi.z - lo.z)`) and moves the pack model's
+  foot onto VCS's (x, y and z). Checked in a hidden run at instances read from RAM dumps (the model id is a u16 0x26
+  bytes after the entity's position x): veg_palmbig14 (-1154.72, -362.71, 10.17), veg_palm01 (-1463.31, -297.60,
+  13.78), veg_palm02 (-1298.97, -434.27, 9.65), veg_palm03 (-1013.92, -526.19, 10.03), veg_palm04 (-1828.53, -302.97,
+  11.75), veg_palwee01 (-1111.86, -459.16, 10.04), veg_palwee02 (-1303.12, -437.27, 9.20), veg_tree3 (10.15, -229.03,
+  13.54), veg_treea1 (222.11, 137.01, 8.29): every trunk now meets the ground where the game's own does
+  (build/veg_test/feet: off / before / after / bsor).
+- **BSOR Vegetation (SA PC)** has all eleven names (RW 3.6, one atomic each, 1.7k - 6.3k triangles); its textures are
+  in one dictionary, `bsor5s_txdp.txd`, which `thetxdp.ide` makes the parent of SA's vegetation dictionaries
+  (`gta_tree_palm`, `tree1`, ...). Each model carries SA's night vertex colours (0x253F2F9; all alpha 255), an empty
+  2dfx (0x253F2FD, count 0) and day prelighting (alpha 255); the converter uses none of them (VCS's palms are a flat
+  grey). Material colours are white. Its `sjmpalm*`, `vgs_palm*`, `veg_palwee03`, `veg_palmkb*` have no VCS model with
+  data and are not used.
+- **Wind on the native world draws (research for SkyGfx Extended's wind, 2026-10-31)**: `vs_world` (gs_draw.hlsl)
+  gets the raw V3-16 position (ITOF0) and transforms it with `nat[0..3]` (window) and `nat[11..14]` (clip test), the
+  model's geometry scale folded in; the colour is RGBA 5551 (no spare bits) and the uv's z lane is the batch's STROW
+  row (0xFF), so there is no free per-vertex channel in the game's prelit format. `GSNativeDraw::constants` holds 31
+  float4s and VcsWorld uses 0 - 14: 15 - 30 are free. The converter's quantizer centres each model's box, so
+  `(pos.z + 32768) / 65536` is a vertex's height within its model (0 = bottom).
+- **Built (2026-10-31)**: the converted BSOR palms share textures between models of different sizes, so a texture
+  cannot carry one model's box. tools/veg_convert.py quantizes every converted tree the same way instead - 2 mm per
+  unit on all three axes (geometry scale 64), the crown (top of the trunk) at position 0 - and the wind list
+  (mods/wind.txt) has one set of numbers for every name; only the leaves' (cut-out) textures are in it (2026-11-01:
+  8 of the 16 named textures), so the bark never moves. **CWeather::Wind is the float at `0x4CD2A4`** (read with the rig while forcing each weather
+  type, FORCE_WEATHER_NOW): 0.25 sunny, 0.7 cloudy, 1.0 rain, 0 foggy and extra sunny (types 3, 4, 6, 7), 2.0
+  hurricane (5); it changes at once with the weather. game/vcs_wind.cpp drives the field from it and from
+  `m_snTimeInMilliseconds` (still while paused). Checked in a hidden run (Havana, the palmbig14 view): between two
+  frames 0.4 s apart only the converted palms' crowns change (16k pixels at 1080p in the calm; 1.5k with the wind
+  off - water, the clock); trunks stay joined to the crowns and the game's own bushes stay still. Leaves only
+  (2026-11-01, rain, a close-up of the palms by the Havana houses): the frame diff marks fronds only, the trunks
+  identical in both frames, the crown seated on the trunk's top.
 
 ### 12k. The world's collision - Jolt Physics, milestone 2 (2026-10-31)
 

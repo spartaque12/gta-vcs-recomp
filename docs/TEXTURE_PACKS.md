@@ -41,6 +41,20 @@ The log's `[textures]` lines report the indexed file count, first matches, image
 of unique pack files matched. A partial pack changes only those textures it contains. The original game still
 streams its own assets; replacements are host GPU textures and do not change the ISO, guest memory or saves.
 
+## Packs for the port's own textures (the vegetation)
+
+`VCS_TEXTURE_DUMP=<dir>` writes every texture the renderer hashes once as `<dir>/<PCSX2 name>.png` (base level, GS
+alpha); every format and size is hashed then, so it is for capture runs only. `python tools/veg_convert.py --pack
+<zip> --hd` uses it for the 80's VC True Vegetation port: it converts the palms and trees as before (4-bit, 32 - 256 px,
+streamed), runs the game hidden past each placed model (control port `--port`, default 7791; a card copy, `--save`),
+finds each converted texture among the dumped ones by its texels, and writes the pack's full-size image (alpha scaled
+to 128, transparent texels' colour bled from the leaves) under that name to
+`build/textures/SLUS-21590/replacements/vegetation/`. With Texture replacements on, the palms are drawn with the pack's
+256 - 1024 px textures; off, with the converted ones. The streamed data stays small (streaming memory) while the GPU
+holds the detail. Checked 2026-10-31: all 25 textures of the 9 placed models named and loaded in a hidden run
+(`veg_treea3` and `veg_treeb1` are placed nowhere). Re-run `--hd` after any change to the conversion: the names
+follow the converted texels.
+
 ## Implementation
 
 `src/render/texture_replacements.{h,cpp}` indexes names, uses xxHash's XXH3-64, and decodes PNGs with stb_image.

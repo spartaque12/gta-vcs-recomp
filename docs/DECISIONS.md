@@ -1061,11 +1061,23 @@ The user asked to port the "80's VC True Vegetation" mod (VC PC palms and trees)
   (`tools/veg_convert.py` -> `<mods>/stream`), with that model's own texture dictionary, which nothing else uses. The
   user then asked for the pack's four leaf trees too (`veg_tree3`, `veg_treea1`, `veg_treea3`, `veg_treeb1`): all
   eleven by default, `--only` for fewer.
-- **Alpha dual pass in the renderer** (the user's request, after skygfx): Graphics > "Alpha dual pass", off by default
-  as every enhancement. Blended draws with the low alpha-test reference draw their half-alpha-and-up texels with depth
+- **Alpha dual pass in the renderer** (the user's request, after skygfx): Graphics > "Alpha dual pass", on by default
+  (the user's choice, 2026-10-31: it fixes the game's own foliage too, for about 0.3 ms of GPU time). Its cost
+  (the user: "eats way too much performance"): the second pass ran for every alpha-blended world draw, nearly all of
+  them; it now runs only for textures with partly transparent texels (alpha strictly between 0 and half), the others
+  draw once as before - 60% of the eligible draws in a Havana palm view. Both passes stay on the GPU: the draw shader
+  writes SV_Depth (GS depth), so early depth rejection cannot cull the second pass. Measured there at the user's
+  settings (240 cap, window resolution, 16x anisotropic, a 1080p frame): 148 - 161 game fps off, 158 - 164 on - the game
+  thread limits, not the GPU; GPU 3.8 -> 4.4 ms before the change. Blended draws with the low alpha-test reference draw their half-alpha-and-up texels with depth
   writes, then the rest without, so half-transparent leaf edges stop hiding what is drawn after them
   (PS2RECOMP_PATCHES.md). It works for every such draw, the game's own foliage and fences included; the converter's
   0 / 255 alpha stays, as the result must also hold with the option off.
+- **Full-size textures as a texture pack** (the user's request, 2026-10-31, "as the HD HUD"): the streamed models keep
+  their small 4-bit textures (streaming memory; Texture replacements off still looks right), and `veg_convert.py --hd`
+  writes the pack's own images as PCSX2-named replacements. The names come from the renderer itself
+  (`VCS_TEXTURE_DUMP`) rather than a Python copy of XXH3 and the GS's block layout: one hidden run, exact by
+  construction. The pack's alpha is kept at full size (scaled to 128): alpha dual pass, on by default, handles its
+  half-transparent edges.
 - **Scaled to VCS's heights**: VCS's palms are the same designs drawn 0.8 - 1.4 times VC's size; the map is placed
   around them, so each new palm takes the old one's height (its footprint then matches too).
 - **The game's formats and colour**: prelit like the game's own palms (flags 0xD), their flat grey times the pack's
@@ -1088,6 +1100,80 @@ The user asked to port the "80's VC True Vegetation" mod (VC PC palms and trees)
   made 0 or 255; opaque materials are drawn first. Left is the filtered edge band: a fine sky-coloured speckle between
   leaflets, as alpha-tested foliage has.
 - `tools/veg_convert.py --remove` takes the palms out again; `VCS_STREAM_OVERRIDE=0` runs without any override.
+- **Feet on the ground** (2026-10-31, the user's report of a palm on a low wall, 1 m above the lawn): each pack model is
+  scaled to the VCS model's full height and its trunk's foot moved onto the VCS model's (x, y, z) - the origins are not
+  the feet, in VCS or in either pack (game-internals.md 12j has every model's numbers).
+
+## 2026-10-31 - BSOR Vegetation (SA) as the vegetation source (the user's request)
+
+The user switched the source from the 80's VC pack to BSOR Vegetation, a GTA SA modloader folder.
+- **Only models that fit a VCS model**: BSOR has all eleven VCS names (`veg_palm01..04`, `veg_palmbig14`,
+  `veg_palwee01..02`, `veg_tree3`, `veg_treea1`, `veg_treea3`, `veg_treeb1`), so each replaces the same name as before;
+  no stand-ins were needed. Its `sjmpalm*`, `vgs_palm*` and `veg_palwee03` have no VCS model with data, and the
+  `veg_palmkb*` names exist in VCS without data, so none of them is used.
+- **One tool, two sources**: `--pack` takes either; a folder with `files dff` is BSOR (`BsorPack`), anything else the
+  VC zip / folder as before. BSOR's textures come from the dictionaries `thetxdp.ide` names as parents (one,
+  `bsor5s_txdp.txd`, 51 MB, read for the 16 textures the models use). SA's night colours, 2dfx and prelighting are
+  not carried over: the result keeps the VCS palms' flat grey, as with the VC pack.
+- **Heights**: with the feet aligned (above) every BSOR trunk meets the ground at the instances checked
+  (build/veg_test/feet/bsor); without it BSOR's `veg_palwee02` would have floated 0.7 m and its `veg_palm01` stood
+  3.6 m from its collision. Sizes: 1,140 - 5,465 triangles, 3,000 - 10,735 strip vertices per model (the VC pack:
+  up to 8,088), 18 - 62 model sectors.
+- `--hd` names 16 full-size textures (512 - 1024 px); `veg_treea3` / `veg_treeb1` stand nowhere on the map, so their
+  three textures are not seen and get none. The VC pack's 25 replacement images were moved out of the vegetation
+  folder (build/veg_test/feet/hd_vc), since their names no longer match anything.
+
+## 2026-10-31 - SkyGfx Extended's vegetation wind: what it is, a plan for the native renderer (research, not built)
+
+Read from the user's copy (extracted to build/analysis/skygfx_ext, nothing run; the two D3D9 vertex shaders in
+skygfx.asi disassembled with fxc /dumpbin): v4.2b Extended v1.7 (aap, Junior_Djjr). Wind lives in its building
+pipeline's vertex shaders (`vs_2_x`, with and without the env-map normals), constants `windPos` (c21, float2) and
+`windIntensity` (c22); the ini has only a hidden `forceWindShader` key. Per vertex, in model space:
+`p = pos.xy + windPos`; value noise `n` = bilinear, smoothstep-weighted blend of `frac(sin(k) * 43758.5469)` at the
+four integer corners (`k = floor(p.x) + 57 floor(p.y)`, + 1, + 57, + 58); `w = (n - 0.5) * windIntensity`;
+`k = 1 - nightColour.a`; `pos.xy += w * k`, `pos.z += 0.3 * w * k`. So what moves is chosen per vertex by the
+model's night vertex colour alpha (SA's 0x253F2F9; 255 = still), authored into the DFF - BSOR's are all 255, so in SA
+SkyGfx would not move BSOR's palms either. How the asi sets windPos / windIntensity (from CWeather::Wind, time) is in
+its x86 code, not read.
+
+**Built 2026-10-31 (the user's request)**, Graphics > Vegetation wind (off by default) and its strength. What changed
+from the plan below:
+- **One position convention instead of per-model numbers**: the BSOR palms share textures between models of different
+  sizes, so the converter quantizes every converted tree with 2 mm per unit and its crown (the top of the trunk: the
+  middle of the opaque parts' highest metre) at position 0, and the wind list (tools/veg_convert.py --hd ->
+  mods/wind.txt: "name, metres per unit x y z, 0, reach") repeats one set of numbers. Texture data is unchanged by
+  it, so the dump's names stay valid.
+- **Only the leaves sway, by their distance from the crown** (the user, 2026-11-01: "vegetation wind should not work
+  on bark of palms"): only cut-out textures are in the wind list - the bark is never moved -, and the weight is the
+  square of the distance from the crown up to 6 m, then linear, so the fronds' bases stay on the trunk's top and their
+  tips move most. (The first version weighted by height above the foot and moved the bark too.) Two noise samples (x
+  and y apart) instead of SkyGfx's single diagonal one; an integer hash instead of `frac(sin)`.
+- **Strength from the game's wind** (`0x4CD2A4`, game-internals.md 12j): 0.3 + 0.6 x wind metres (clamped 0 - 2),
+  times the strength setting; the field drifts at 0.6 + 1.2 x wind m/s in a slowly turning direction, on the game's
+  clock (still while paused).
+
+Plan for VCS (as researched; another session owns gs_hw.cpp):
+- **Data**: VCS's prelit vertex has no free channel (RGBA 5551 colour; the uv's z lane is the batch's STROW row), so
+  the weight comes from the position: the converter's quantizer centres each model's box, so `h = (pos.z + 32768) /
+  65536` is the height within the model; weight `saturate((h - 0.15) / 0.85)^2` keeps the foot still and moves the
+  crown most, and since trunk top and fronds sample the same noise at nearby positions they stay joined.
+- **Which draws**: a per-draw flag. Best: by texture - the converter already learns each converted texture's PCSX2 name
+  (`--hd`); it would also write `<mods>/wind.txt` (names + amplitude), and the renderer, which hashes textures for
+  replacements anyway, sets the flag for those. By model id (540 - 578) needs the RSL level to pass the entity's model
+  to the native draw (not plumbed today). A magic word in the batch header (the V4-32 at VU address 0, x / y zero in
+  the game's palms) would need proof that the VU program 0x0030 ignores those lanes.
+- **Shader**: in `vs_world`, before both transforms, `pos.xy += w * k * A`, `pos.z += 0.3 * ...`, in raw position
+  units (A a fraction of 32768, so a tall palm sways more in metres than a small one); constants in `nat[15]` (windPos,
+  intensity, flag) - slots 15 - 30 are unused by VcsWorld, so `GSNativeDraw` (gs_backend.h, a full rebuild) need not
+  change. The mesh cache is unaffected (positions stay as cached; the offset is GPU-side). SPIR-V regenerated by
+  tools/hlsl_spirv.py.
+- **Time and strength**: windPos advances along the wind's direction each frame (the game's own wind value - VCS's
+  CWeather::Wind address still to be found - or a fixed speed), intensity from it; a Graphics setting, off by default
+  (authentic by default).
+- **Cost**: ~45 ALU slots per flagged vertex (four sin hashes; a cheaper integer hash would do), only on flagged draws:
+  a Havana palm view has ~50 - 100k strip vertices of palms - well under 0.1 ms of GPU. No new draws; the CPU adds one
+  set lookup per draw. The PS2 path, PS2X_HLE_VERIFY (CPU-side kicks) and collision are untouched; the culling sphere
+  covers an offset of a few per cent of the model's size.
 
 ## 2026-10-31 - Upstream PR #8 (PCSX2 texture packs) in this build, for the HD HUD pack (the user's request)
 

@@ -1,13 +1,15 @@
-"""GTA VC vegetation (DFF + TXD) -> VCS PS2 map object models ('ldm' Rsl chunk, prelit) + their texture dictionaries
+"""GTA VC / SA vegetation (DFF + TXD: the 80's VC True Vegetation pack or BSOR Vegetation) -> VCS PS2 map object models ('ldm' Rsl chunk, prelit) + their texture dictionaries
 ('xet' chunk), written as streamed-file overrides (src/game/vcs_stream_override.h: <mods>/stream/<id>.ldm / .xet).
 
-    python tools/veg_convert.py --pack "<...>/80's vc True vegetation.zip" [--only veg_palm01,veg_tree3]
-                                [--tris 600] [--tex 256] [--mods build/mods] [--iso ISO]
+    python tools/veg_convert.py --pack "<...>/modloader/BSOR_Vegetation" (SA)  or  "<...>/80's vc True vegetation.zip" (VC)
+                                [--only veg_palm01,veg_tree3]
+                                [--tris 600] [--tex 256] [--mods build/mods] [--iso ISO] [--hd [--hd-dump DIR]]
     python tools/veg_convert.py --remove [--mods DIR]          the overrides this tool wrote, deleted again
 
 VCS keeps VC's model names for its vegetation (game-internals.md 12i): each VC palm and leaf tree of the pack replaces the VCS model
 of the same name and that model's own texture dictionary (no other model uses them). VCS's palms are VC's designs drawn
-taller, so each pack model is scaled to the VCS model's height (its footprint then matches too). Map objects are prelit:
+taller, so each pack model is scaled to the VCS model's height (its footprint then matches too) and its trunk's foot
+put where the VCS model's stands (trunk_foot). Map objects are prelit:
 per material a mesh whose DMA packet (RET) holds batches of <= 70 strip vertices - V3-16 positions at 1, V2-8 uv at
 0x48, V4-5 colours (RGBA 5551) at 0x8F, MSCAL 6, geometry flags 0xD - as the game's own palms. The colour is the VCS
 palms' own grey (0xAD6B) times the pack's material colour. The pack's palms are 4.9k - 10.5k triangles, and every 68
@@ -18,8 +20,11 @@ stems - are simplified, to --tris - and drawn first; materials with fully transp
 textures become 4-bit as most of the game's own (8-bit below 32 x 16; raster), 32 - 256 px by how much of the model
 each covers, cut-out ones at least 128: colour averaged by alpha, alpha scaled to keep the full-size share of solid texels (foliage_downscale),
 then made 0 or 255 (binary_alpha: the game writes depth for every texel past alpha 8 of 128). Nothing of the game is
-written into this repository: the user converts their copy of the pack against their disc."""
-import argparse, math, os, shutil, struct, sys, tempfile, zipfile
+written into this repository: the user converts their copy of the pack against their disc.
+--hd adds the pack's full-size textures as a texture pack (docs/TEXTURE_PACKS.md, as the HD HUD): a hidden run with
+VCS_TEXTURE_DUMP gives each converted texture its PCSX2 name, and the full-size image is written under it; those names
+also go into <mods>/wind.txt, the textures Graphics > Vegetation wind sways (game/vcs_wind.h, wind_quantizer)."""
+import argparse, math, os, shutil, struct, sys, tempfile, time, zipfile, zlib
 from collections import Counter, defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rw_dff as rwdff, rw_txd as rwtxd, mesh_simplify
@@ -213,7 +218,179 @@ def load_tris(dff):
     return out
 
 
-def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_max=256, log=print):
+def decoded(w, h, r):
+    """the texture as the GS samples it (RGBA, alpha 128 = opaque): what VCS_TEXTURE_DUMP writes for it"""
+    four = r["flags"] >> 12 & 0x3F == 4
+    pix = r["data"][:w * h // 2] if four else r["data"][:w * h]
+    clut = r["data"][len(pix):]
+    out = bytearray(w * h * 4)
+    for i in range(w * h):
+        k = (pix[i >> 1] >> (4 * (i & 1)) & 15) if four else wc.csm1(pix[i])
+        out[i * 4:i * 4 + 4] = clut[k * 4:k * 4 + 4]
+    return bytes(out)
+
+
+def read_png(path):
+    """(w, h, RGBA) of an 8-bit RGBA PNG (the renderer's dumps: unfiltered rows)"""
+    d = open(path, "rb").read()
+    p, idat, w = 8, b"", 0
+    while p < len(d):
+        n, kind = struct.unpack_from(">I4s", d, p)
+        if kind == b"IHDR":
+            w, h, depth, colour = struct.unpack_from(">IIBB", d, p + 8)
+            if (depth, colour) != (8, 6):
+                return None
+        elif kind == b"IDAT":
+            idat += d[p + 8:p + 8 + n]
+        p += 12 + n
+    raw = zlib.decompress(idat)
+    stride = w * 4 + 1
+    if any(raw[y * stride] for y in range(h)):
+        return None
+    return w, h, b"".join(raw[y * stride + 1:(y + 1) * stride] for y in range(h))
+
+
+def write_png(path, w, h, rgba):
+    rows = b"".join(b"\0" + rgba[y * w * 4:(y + 1) * w * 4] for y in range(h))
+    chunk = lambda kind, data: struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) +
+                chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
+
+
+# Where each placed model stands (CWorld's sectors in a RAM dump, 2026-10-31): the HD capture looks around there.
+# veg_treea3 and veg_treeb1 are placed nowhere on the map.
+HD_SPOTS = {
+    "veg_tree3": (10, -229, 14), "veg_treea1": (222, 137, 8), "veg_palm04": (-1829, -303, 12),
+    "veg_palm02": (-1299, -434, 10), "veg_palm03": (-1014, -526, 10), "veg_palwee01": (-1112, -459, 10),
+    "veg_palwee02": (-1303, -437, 9), "veg_palmbig14": (-1155, -363, 10), "veg_palm01": (-1463, -298, 14),
+}
+
+
+def hd_capture(models, mods, dump, port, save):
+    """A hidden run with VCS_TEXTURE_DUMP: the camera turned around at each model's spot"""
+    import rig
+    env = {"VCS_MODS_DIR": os.path.abspath(mods), "VCS_TEXTURE_DUMP": os.path.abspath(dump)}
+    g = rig.Game.start(save=save, name="veg_hd", env=env, port=port)
+    try:
+        g.wait_ingame()
+        g.invincible()
+        g.set_time(13)
+        for name in models:
+            if name not in HD_SPOTS:
+                continue
+            x, y, z = HD_SPOTS[name]
+            print("  looking around %s at (%d, %d, %d)" % (name, x, y, z))
+            g.teleport(x + 15, y, z + 2)  # the free camera stays where it was turned on: off while moving
+            time.sleep(4.0)
+            g.cmd("trainer toggle freecam 1")
+            time.sleep(1.0)
+            for _ in range(8):
+                g.cmd("mouse 200 0")
+                time.sleep(1.0)
+            g.cmd("trainer toggle freecam 0")
+    finally:
+        g.quit()
+
+
+def hd_textures(hd, dump, out, wind=None, log=print):
+    """Each converted texture found among the dumped ones (same size, same texels) gets the pack's full-size image
+    under the dump's name: the renderer's texture replacements (docs/TEXTURE_PACKS.md) draw it in its place. wind: the
+    wind list to write (the names of the textures of models in the wind convention)"""
+    dumps = defaultdict(list)
+    for f in sorted(os.listdir(dump)):
+        if f.endswith(".png"):
+            img = read_png(os.path.join(dump, f))
+            if img:
+                dumps[img[:2]].append((f, img[2]))
+    os.makedirs(out, exist_ok=True)
+    done, written, sway = 0, set(), set()
+    for tex, w, h, want, (sw, sh, src), sways in hd:
+        name = next((f for f, px in dumps.get((w, h), ()) if px == want), None)
+        if not name:
+            log("  %-26s %dx%d: not seen in the capture" % (tex, w, h))
+            continue
+        if sways:
+            sway.add(name[:-4])
+        if name in written:  # the same texture in another model's dictionary
+            continue
+        written.add(name)
+        rgba = bleed(sw, sh, src) if cut_out((sw, sh, src)) else src
+        rgba = bytes(v if i & 3 != 3 else (v * 128 + 127) // 255 for i, v in enumerate(rgba))  # GS alpha
+        write_png(os.path.join(out, name), sw, sh, rgba)
+        done += 1
+        log("  %-26s %dx%d -> %dx%d  %s" % (tex, w, h, sw, sh, name))
+    if wind:
+        with open(wind, "w") as f:
+            f.write("# vegetation wind sway (tools/veg_convert.py --hd; game/vcs_wind.h): name, metres per unit x y z, "
+                    "0, reach\n")
+            f.writelines(wind_line(n) for n in sorted(sway))
+        log("wind list: %d textures -> %s" % (len(sway), wind))
+    return done
+
+
+def vcs_verts(vd):
+    """The VCS model's vertex positions: every V3-16 UNPACK to address 1 (positions) in its batches, through the
+    geometry header's scale and offset (wc.vcs_box)"""
+    el = wc.u32(vd, 0x20)
+    g = wc.u32(vd, el + 0x14) + 0x20
+    sc = struct.unpack_from("<3f", vd, g + 0x28)
+    po = struct.unpack_from("<3f", vd, g + 0x34)
+    out = []
+    for o in range(0, len(vd) - 4, 4):
+        w = wc.u32(vd, o)
+        n = w >> 16 & 0xFF
+        if w >> 24 == 0x79 and w & 0xFFFF == 0x8001 and 1 <= n <= 80 and o + 4 + 6 * n <= len(vd):
+            out += [tuple(po[k] + sc[k] * v[k] / 32768 for k in range(3))
+                    for v in struct.iter_unpack("<3h", vd[o + 4:o + 4 + 6 * n])]
+    return out
+
+
+def trunk_foot(ps, band=0.5):
+    """(x, y, z) of a tree's foot: the lowest point's z, x / y the middle of what lies within `band` of it (the trunk's
+    bottom ring in every model of the pack and of VCS)"""
+    z = min(p[2] for p in ps)
+    low = [p for p in ps if p[2] <= z + band]
+    return ((min(p[0] for p in low) + max(p[0] for p in low)) / 2, (min(p[1] for p in low) + max(p[1] for p in low)) / 2, z)
+
+
+# Wind sway (game/vcs_wind.h, gs_draw.hlsl vs_world): only the leaves (cut-out textures) sway, by their distance from
+# the crown - the top of the trunk, where they meet the bark -, so the bark stays still and the leaves stay on it. The
+# converted models' positions are in one convention - 2 mm per unit on every axis, the crown at 0 -, so a texture
+# several models share sways the same in each and the wind list (mods/wind.txt) needs no per-model numbers. 64 m of
+# room around the crown: larger models keep the usual quantizer, still.
+WIND_SCALE = 64.0       # metres for 32768 units
+WIND_REACH = 6.0        # metres from the crown where the sway is full (the square of the distance up to it, then linear)
+
+
+def crown(P, W, T, cut):
+    """the top of the trunk: the middle of the opaque parts' highest metre (the box's top middle without them)"""
+    bark = [P[W[w][0]] for t in T if W[t[0]][3] not in cut for w in t] or P
+    z = max(p[2] for p in bark)
+    top = [p for p in bark if p[2] >= z - 1.0]
+    return ((min(p[0] for p in top) + max(p[0] for p in top)) / 2, (min(p[1] for p in top) + max(p[1] for p in top)) / 2, z)
+
+
+def wind_quantizer(centre):
+    """weapon_convert.quantizer in the wind convention around `centre` (the crown): a function of the points giving
+    (centre, scale, q), or None when they do not fit"""
+    def quantizer(allp):
+        if any(abs(p[i] - centre[i]) > WIND_SCALE * 0.999 for p in allp for i in range(3)):
+            return None
+        scale = [WIND_SCALE] * 3
+        def q(p):
+            return tuple(max(-32768, min(32767, round((p[i] - centre[i]) / scale[i] * 32768))) for i in range(3))
+        return list(centre), scale, q
+    return quantizer
+
+
+def wind_line(name):
+    """a wind list line (render/texture_replacements.h): metres per unit x y z, 0 (unused), the reach (units)"""
+    k = WIND_SCALE / 32768
+    return "%s %.9g %.9g %.9g 0 %d\n" % (name, k, k, k, round(WIND_REACH / k))
+
+
+def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_max=256, log=print, hd=None):
     raw = load_tris(dff)
     hidden = {tex for tex, _, _, _ in raw if textures.get(tex) and not any(textures[tex][2][3::4])}
     if hidden:  # fully transparent textures: alpha-tested away on PC too
@@ -223,12 +400,19 @@ def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_m
     tint = {}
     for tex, _, _, col in raw:
         tint.setdefault(tex, tinted(col))
-    lo = [min(p[i] for _, ps, _, _ in raw for p in ps) for i in range(3)]
-    hi = [max(p[i] for _, ps, _, _ in raw for p in ps) for i in range(3)]
+    allp = [p for _, ps, _, _ in raw for p in ps]
+    lo = [min(p[i] for p in allp) for i in range(3)]
+    hi = [max(p[i] for p in allp) for i in range(3)]
     vlo, vhi = wc.vcs_box(vd)
-    s = vhi[2] / hi[2] if hi[2] > 0 else 1.0
-    log("  %d tris, height %.1f m -> %.1f m (VCS's): scale %.2f" % (len(raw), hi[2], vhi[2], s))
-    parts = [(tex, tuple(tuple(c * s for c in p) for p in ps), uvs) for tex, ps, uvs, _ in raw]
+    # Scaled to the VCS model's full height and stood where its trunk stands: the models' origins are not at the trunk's
+    # foot (VCS's sit 0.8 m below to 0.1 m above it, the pack's 0.7 m below to at it - game-internals.md 12j); scaled
+    # about the origin alone, veg_palmbig14 stood 0.8 m above its lawn and veg_palm02 1 m into it
+    s = (vhi[2] - vlo[2]) / (hi[2] - lo[2]) if hi[2] > lo[2] else 1.0
+    vb, pb = trunk_foot(vcs_verts(vd)), trunk_foot(allp, 0.5 / s)
+    off = (vb[0] - pb[0] * s, vb[1] - pb[1] * s, vb[2] - pb[2] * s)
+    log("  %d tris, height %.1f m -> %.1f m (VCS's): scale %.2f; trunk foot (%.2f %.2f %.2f) -> VCS's (%.2f %.2f %.2f)" % (
+        len(raw), hi[2] - lo[2], vhi[2] - vlo[2], s, pb[0] * s, pb[1] * s, pb[2] * s, *vb))
+    parts = [(tex, tuple(tuple(p[c] * s + off[c] for c in range(3)) for p in ps), uvs) for tex, ps, uvs, _ in raw]
     P, W, T = wc.weld(parts)
     # The fronds are double-sided cards (each face twice, reversed: PC culls back faces); VCS's prelit pipeline draws
     # both sides of a triangle, so one of each pair is enough
@@ -257,7 +441,13 @@ def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_m
             log("  opaque parts %d -> %d triangles; %d leaf triangles as made" % (len(solid), len(T2), len(leaves)))
         else:
             log("  opaque parts left as made: simplified, a material would vanish")
-    _, _, q = wc.quantizer(P)
+    top = crown(P, W, T, cut)
+    wind = wind_quantizer(top) if wind_quantizer(top)(P) else None
+    _, _, q = (wind or wc.quantizer)(P)
+    if wind:
+        log("  crown (wind sway around it) at (%.2f %.2f %.2f)" % top)
+    else:
+        log("  reaches further than %.0f m from its crown: no wind sway" % WIND_SCALE)
     bytex = defaultdict(list)
     area = Counter()
     for i, t in enumerate(T):
@@ -288,8 +478,14 @@ def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_m
         log("  %-26s %5d tris -> %4d strips, %5d strip verts%s" % (
             tex, len(tl), nstrips, len(seq_idx), "  (uv repeats)" if prm[0] or prm[1] else ""))
     el = wc.u32(vd, 0x20); geo = wc.u32(vd, el + 0x14); mat0 = wc.u32(vd, wc.u32(vd, geo + 0x0C))
-    mdl, total, _ = wc.build_mdl(groups, model_id, wc.u32(vd, mat0 + 4), wc.u32(vd, geo + 0x20 + 0x40 + 0x18),
-                                 packet=batch_packet_prelit, geo_flags=0xD)
+    usual = wc.quantizer
+    if wind:  # build_mdl quantizes through its module's quantizer
+        wc.quantizer = wind
+    try:
+        mdl, total, _ = wc.build_mdl(groups, model_id, wc.u32(vd, mat0 + 4), wc.u32(vd, geo + 0x20 + 0x40 + 0x18),
+                                     packet=batch_packet_prelit, geo_flags=0xD)
+    finally:
+        wc.quantizer = usual
     with open(out_mdl, "wb") as f:
         f.write(mdl)
     # the dictionary: only the new textures (it is this model's alone), alpha kept (the fronds are cut out by it)
@@ -307,6 +503,8 @@ def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_m
             rgba = bleed(w, h, binary_alpha(rgba))
         r = raster(w, h, rgba)
         texs.append((tex[:31].encode("latin1"), r["w4"], r["flags"], r["data"]))
+        if hd is not None:
+            hd.append((tex, w, h, decoded(w, h, r), textures[tex], bool(wind) and tex in cut))
         log("  texture %-26s %3dx%-3d %d-bit (%2.0f%% of the area)%s" % (
             tex, w, h, r["flags"] >> 12 & 0x3F, 100 * area[tex] / whole, "  alpha x%.2f" % gain if gain != 1 else ""))
     xet = wc.build_xet(texs)
@@ -319,10 +517,26 @@ def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_m
 
 class Pack:
     """The pack's files from its zip or an unpacked folder, found by name under its VC 1.0 install"""
+    kind = "80's VC True Vegetation (VC PC)"
+
     def __init__(self, path):
         self.path = path
         self.zip = zipfile.ZipFile(path) if zipfile.is_zipfile(path) else None
         self.tmp = tempfile.mkdtemp(prefix="veg_")
+
+    def dff(self, name):
+        return self.file("Replace and import gta3.img/%s.dff" % name)
+
+    def has(self, name):
+        if self.zip:
+            want = (PACK_DIR + "Replace and import gta3.img/%s.dff" % name).lower()
+            return any(n.replace("\\", "/").lower() == want for n in self.zip.namelist())
+        return any(os.path.isfile(os.path.join(b, "Replace and import gta3.img", name + ".dff"))
+                   for b in (os.path.join(self.path, PACK_DIR), self.path))
+
+    def txds(self):
+        """the texture dictionaries to look the models' textures up in, in order"""
+        return [self.file("models/generic.txd"), self.file("Replace and import gta3.img/gtatrees.txd")]
 
     def file(self, rel):
         """a local path of the pack's file (extracted to a temporary folder from a zip)"""
@@ -344,15 +558,73 @@ class Pack:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
 
+class BsorPack:
+    """BSOR Vegetation (GTA SA, a modloader folder): 'files dff/<name>.dff'; the textures in the dictionaries
+    thetxdp.ide names as the parents of SA's vegetation dictionaries (one, bsor5s_txdp.txd, in 'files txd') - every
+    dictionary in 'files txd' when none is named. SA PC files: RW 3.6 (0x1803FFFF); their night vertex colours
+    (0x253F2F9), empty 2dfx (0x253F2FD) and day prelighting are not used (VCS's palms are a flat grey)"""
+    kind = "BSOR Vegetation (SA PC)"
+
+    @staticmethod
+    def detect(path):
+        return os.path.isdir(os.path.join(path, "files dff"))
+
+    def __init__(self, path):
+        self.path = path
+
+    def dff(self, name):
+        p = os.path.join(self.path, "files dff", name + ".dff")
+        if not os.path.isfile(p):
+            tc.fail("%s not found in %s" % (name + ".dff", os.path.join(self.path, "files dff")))
+        return p
+
+    def has(self, name):
+        return os.path.isfile(os.path.join(self.path, "files dff", name + ".dff"))
+
+    def txds(self):
+        folder = os.path.join(self.path, "files txd")
+        files = {f.lower(): os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(".txd")}
+        parents = []
+        ide = os.path.join(self.path, "thetxdp.ide")
+        if os.path.isfile(ide):
+            section = None
+            for line in open(ide, encoding="latin1"):
+                line = line.split("#")[0].strip()
+                if not line:
+                    continue
+                if line.lower() in ("txdp", "end"):
+                    section = line.lower() if line.lower() == "txdp" else None
+                    continue
+                if section == "txdp" and "," in line:
+                    parent = line.split(",")[1].strip().lower() + ".txd"
+                    if parent in files and files[parent] not in parents:
+                        parents.append(files[parent])
+        return parents or sorted(files.values())
+
+    def close(self):
+        pass
+
+
+def open_pack(path):
+    return BsorPack(path) if BsorPack.detect(path) else Pack(path)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pack", help="the 80's VC True Vegetation zip (or its unpacked folder)")
+    ap.add_argument("--pack", help="the 80's VC True Vegetation zip (or its unpacked folder), or BSOR Vegetation's "
+                    "modloader folder (SA; found by its 'files dff' folder)")
     ap.add_argument("--only", help="comma-separated model names")
     ap.add_argument("--tris", type=int, default=600, help="the opaque parts' (trunks') triangle budget per model; the leaf cards stay as made")
     ap.add_argument("--tex", type=int, default=256, help="largest texture side")
     ap.add_argument("--mods", default=os.path.join(tc.BUILD, "mods"))
     ap.add_argument("--iso")
     ap.add_argument("--remove", action="store_true", help="delete the overrides this tool writes")
+    ap.add_argument("--hd", action="store_true", help="also the pack's full-size textures as texture replacements: a "
+                    "hidden run names the converted ones (VCS_TEXTURE_DUMP), each gets its full-size image under that name")
+    ap.add_argument("--hd-dump", help="an existing dump folder instead of the hidden run")
+    ap.add_argument("--hd-out", default=os.path.join(tc.BUILD, "textures", "SLUS-21590", "replacements", "vegetation"))
+    ap.add_argument("--port", type=int, default=7791, help="the hidden run's control port")
+    ap.add_argument("--save", default=os.path.join(tc.BUILD, "rig", "saves", "user"), help="card copy the hidden run starts from")
     a = ap.parse_args()
     models = dict(PALMS, **TREES)
     if a.only:
@@ -369,23 +641,40 @@ def main():
         tc.fail("--pack <80's vc True vegetation.zip> is needed")
     iso = tc.find_iso(a.iso)
     os.makedirs(stream, exist_ok=True)
-    pack = Pack(a.pack)
+    pack = open_pack(a.pack)
+    print("pack:", pack.kind)
     try:
-        dffs = {name: pack.file("Replace and import gta3.img/%s.dff" % name) for name in models}
+        missing = [name for name in models if not pack.has(name)]
+        if missing:
+            print("not in the pack (the game's own stay): " + ", ".join(missing))
+            models = {k: v for k, v in models.items() if k not in missing}
+        dffs = {name: pack.dff(name) for name in models}
         wanted = {(m["texture"] or "").lower() for path in dffs.values() for g in rwdff.parse_dff(path)[1] for m in g.materials}
-        print("reading %d textures from the pack (models/generic.txd, gtatrees.txd)" % len(wanted))
-        textures = rwtxd.read_txd(pack.file("models/generic.txd"), 4096, wanted)  # full size: foliage_downscale
-        textures.update(rwtxd.read_txd(pack.file("Replace and import gta3.img/gtatrees.txd"), 4096, wanted))
+        txds = pack.txds()
+        print("reading %d textures from the pack (%s)" % (len(wanted), ", ".join(os.path.basename(t) for t in txds)))
+        textures = {}
+        for t in txds:  # full size: foliage_downscale
+            textures.update({k: v for k, v in rwtxd.read_txd(t, 4096, wanted).items() if k not in textures})
+        hd = [] if a.hd else None
         for name, (mid, mpos, msz, tid, tpos, tsz) in models.items():
             print("%s -> model %d, textures %d" % (name, mid, tid))
             vd = wc.read_img(iso, mpos, msz)
             if vd[:4] != b"ldm\0":
                 tc.fail("%s: no 'ldm' at sector 0x%x of GTA3PS2.IMG - another disc?" % (name, mpos))
             convert(name, dffs[name], textures, vd, mid, os.path.join(stream, "%d.ldm" % mid),
-                    os.path.join(stream, "%d.xet" % tid), a.tris, a.tex)
+                    os.path.join(stream, "%d.xet" % tid), a.tris, a.tex, hd=hd)
+        print("written to", stream)
+        if a.hd:
+            dump = a.hd_dump
+            if not dump:
+                dump = os.path.join(tc.BUILD, "veg_hd", "dump")
+                shutil.rmtree(dump, ignore_errors=True)
+                print("naming the textures: a hidden run looks at each model (port %d)" % a.port)
+                hd_capture(models, a.mods, dump, a.port, a.save)
+            n = hd_textures(hd, dump, a.hd_out, os.path.join(a.mods, "wind.txt"))
+            print("%d full-size textures written to %s (F2 > Graphics > Texture replacements)" % (n, a.hd_out))
     finally:
         pack.close()
-    print("written to", stream)
 
 
 if __name__ == "__main__":

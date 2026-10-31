@@ -74,7 +74,9 @@ cbuffer Native : register(b1)
 };
 // VcsWorld: 0-3 GS window matrix rows (scale / offset folded in, VU data 28-31, 42, 43), 4-6 texture matrix rows * 1/255
 //   (44-46), 7-9 prelit colour scale / offset / clamp (0x9c-0x9e), 10 fog (x on, y bias, z scale per w; 53),
-//   11-14 clip-test matrix rows, folded (24-27)
+//   11-14 clip-test matrix rows, folded (24-27); wind sway (gsHwSetWind, the renderer fills them for the textures in
+//   wind.txt): 15 wind position (xy, metres), strength (z, metres), 16 metres per position unit (xyz; x 0 = still),
+//   17 y: 1 / the reach in position units (the sway is full that far from the crown, position 0)
 // VcsLit: 0-3 GS window matrix (28-31), 4-6 texture matrix * 1/255, 7 fog, 8-11 clip-test matrix (24-27),
 //   12-14 light direction rows (lanes = lights), 15-18 light colours * material, 19 ambient * material, 20 clamp,
 //   21.x material alpha
@@ -113,12 +115,38 @@ struct WorldIn
     uint col : COLOR0;      // the V4-5 colour's expanded bytes
 };
 
+// Value noise in 0..1 with 1 m cells (SkyGfx Extended's vegetation wind; an integer hash instead of its sin)
+float windNoise(float2 p)
+{
+    const float2 c = floor(p), f = p - c, s = f * f * (3.0 - 2.0 * f);
+    const uint2 k = uint2(int2(c) + 32768);
+    float4 h;
+    [unroll] for (uint j = 0; j < 4; ++j)
+    {
+        uint n = (k.x + (j & 1u)) * 0x27D4EB2Du ^ (k.y + (j >> 1)) * 0x165667B1u;
+        n = (n ^ (n >> 15)) * 0x2C1B3C6Du;
+        h[j] = float(n >> 8) / 16777216.0;
+    }
+    return lerp(lerp(h.x, h.y, s.x), lerp(h.z, h.w, s.x), s.y);
+}
+
 // VCS prelit world (VU1 0x0030 with stages 0x0da / 0x4e0 / 0x2b6): see docs/game-internals.md
 VSOut vs_world(WorldIn i)
 {
     VSOut o = (VSOut)0;
-    const float4 S = nat[0] * i.pos.x + nat[1] * i.pos.y + nat[2] * i.pos.z + nat[3];
-    const float4 C = nat[11] * i.pos.x + nat[12] * i.pos.y + nat[13] * i.pos.z + nat[14];
+    float3 pos = i.pos;
+    [branch] if (nat[16].x > 0.0)
+    {
+        // wind sway of a model's leaves (its position 0 = the crown, where they meet the bark): still at the crown, the
+        // square of the distance from it up to the reach, then linear; the noise field drifts with the wind
+        const float2 m = pos.xy * nat[16].xy + nat[15].xy;
+        const float h = length(pos) * nat[17].y;
+        const float k = (h < 1.0 ? h * h : h) * nat[15].z;
+        const float2 w = (float2(windNoise(m), windNoise(m + float2(31.7, 17.3))) - 0.5) * k;
+        pos += float3(w, 0.3 * (w.x + w.y)) / nat[16].xyz;
+    }
+    const float4 S = nat[0] * pos.x + nat[1] * pos.y + nat[2] * pos.z + nat[3];
+    const float4 C = nat[11] * pos.x + nat[12] * pos.y + nat[13] * pos.z + nat[14];
     nativePosition(S, C, nat[4].xyz * i.uv.x + nat[5].xyz * i.uv.y + nat[6].xyz * i.uv.z, o);
     const float4 c = float4(i.col & 0xFF, (i.col >> 8) & 0xFF, (i.col >> 16) & 0xFF, i.col >> 24);
     o.col = trunc(min(nat[8] + nat[7] * c, nat[9])) / 255.0;

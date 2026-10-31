@@ -17,6 +17,13 @@ namespace render
         std::vector<uint32_t> pixels; // unmodified RGBA8: PCSX2 packs keep GS alpha (128 = opaque)
     };
 
+    // A wind list entry (gsHwSetWind): metres per position unit, the reach (position units; footZ unused, 0)
+    struct WindModel
+    {
+        float metresPerUnit[3] = {};
+        float footZ = 0.0f, invHeight = 0.0f;
+    };
+
     class TextureReplacements
     {
     public:
@@ -27,6 +34,13 @@ namespace render
 
         bool candidate(uint32_t bits) const;
         uint32_t find(uint64_t pixels, uint64_t palette, uint32_t bits);
+        // VCS_TEXTURE_DUMP=<dir>: every texture the renderer hashes is written once as <dir>/<PCSX2 name>.png (GS alpha,
+        // 128 = opaque) - the names a pack's images need (tools/veg_convert.py --hd). Every shape is a candidate then.
+        bool dumping() const;
+        void dump(uint64_t pixels, uint64_t palette, uint32_t bits, uint32_t width, uint32_t height, const uint32_t *rgba);
+        // VCS_WIND_LIST=<file> (tools/veg_convert.py writes mods/wind.txt): lines "<PCSX2 name> mx my mz 0 reach",
+        // the textures whose draws sway in the wind - with or without replacements. Its shapes are candidates.
+        const WindModel *wind(uint64_t pixels, uint64_t palette, uint32_t bits) const;
         void request(uint32_t id);
         std::vector<std::shared_ptr<const ReplacementImage>> takeReady();
         size_t budget() const;

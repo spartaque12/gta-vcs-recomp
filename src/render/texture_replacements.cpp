@@ -81,6 +81,58 @@ namespace render
             stbi_image_free(rgba);
             return image;
         }
+        // An RGBA PNG with stored (uncompressed) deflate blocks: no encoder library for a diagnostic
+        bool writePng(const std::filesystem::path &path, uint32_t w, uint32_t h, const uint32_t *rgba)
+        {
+            static uint32_t table[256];
+            if (!table[1])
+                for (uint32_t i = 0; i < 256; ++i)
+                {
+                    uint32_t c = i;
+                    for (int k = 0; k < 8; ++k) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                    table[i] = c;
+                }
+            std::vector<uint8_t> raw;
+            raw.reserve(size_t(h) * (w * 4 + 1));
+            for (uint32_t y = 0; y < h; ++y)
+            {
+                raw.push_back(0);
+                const auto *row = reinterpret_cast<const uint8_t *>(rgba + size_t(y) * w);
+                raw.insert(raw.end(), row, row + w * 4);
+            }
+            std::vector<uint8_t> z{0x78, 0x01};
+            for (size_t o = 0; o == 0 || o < raw.size(); o += 65535)
+            {
+                const size_t n = std::min<size_t>(65535, raw.size() - o);
+                z.push_back(o + n >= raw.size() ? 1 : 0);
+                z.push_back(uint8_t(n)); z.push_back(uint8_t(n >> 8));
+                z.push_back(uint8_t(~n)); z.push_back(uint8_t(~n >> 8));
+                z.insert(z.end(), raw.begin() + o, raw.begin() + o + n);
+            }
+            uint32_t a = 1, b = 0;
+            for (uint8_t c : raw) { a = (a + c) % 65521; b = (b + a) % 65521; }
+            for (int s = 24; s >= 0; s -= 8) z.push_back(uint8_t(((b << 16) | a) >> s));
+            std::vector<uint8_t> png{0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+            auto chunk = [&](const char *type, const std::vector<uint8_t> &data) {
+                for (int s = 24; s >= 0; s -= 8) png.push_back(uint8_t(data.size() >> s));
+                const size_t start = png.size();
+                png.insert(png.end(), type, type + 4);
+                png.insert(png.end(), data.begin(), data.end());
+                uint32_t crc = 0xFFFFFFFFu;
+                for (size_t i = start; i < png.size(); ++i) crc = table[(crc ^ png[i]) & 0xFF] ^ (crc >> 8);
+                crc = ~crc;
+                for (int s = 24; s >= 0; s -= 8) png.push_back(uint8_t(crc >> s));
+            };
+            std::vector<uint8_t> ihdr;
+            for (uint32_t v : {w, h})
+                for (int s = 24; s >= 0; s -= 8) ihdr.push_back(uint8_t(v >> s));
+            ihdr.insert(ihdr.end(), {8, 6, 0, 0, 0});
+            chunk("IHDR", ihdr);
+            chunk("IDAT", z);
+            chunk("IEND", {});
+            std::ofstream f(path, std::ios::binary);
+            return f.write(reinterpret_cast<const char *>(png.data()), png.size()).good();
+        }
     }
 
     struct TextureReplacements::Impl
@@ -97,6 +149,10 @@ namespace render
         std::thread worker;
         bool stopping = false;
         uint32_t matched = 0, loaded = 0;
+        std::filesystem::path dumpDir;
+        std::unordered_set<std::string> dumped;
+        std::unordered_map<Name, WindModel, NameHash> wind;
+        std::unordered_set<uint32_t> windShapes;
 
         void run()
         {
@@ -133,6 +189,33 @@ namespace render
 
     TextureReplacements::TextureReplacements() : m(std::make_unique<Impl>())
     {
+        if (const char *dump = std::getenv("VCS_TEXTURE_DUMP"); dump && *dump)
+        {
+            m->dumpDir = std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t *>(dump)));
+            std::error_code ec;
+            std::filesystem::create_directories(m->dumpDir, ec);
+            std::fprintf(stderr, "[textures] dumping hashed textures to %s\n", m->dumpDir.string().c_str());
+        }
+        if (const char *list = std::getenv("VCS_WIND_LIST"); list && *list)
+        {
+            std::ifstream in(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t *>(list))));
+            std::string line;
+            while (std::getline(in, line))
+            {
+                char stem[96];
+                WindModel w;
+                float height = 0.0f;
+                Name n;
+                if (std::sscanf(line.c_str(), "%95s %f %f %f %f %f", stem, &w.metresPerUnit[0], &w.metresPerUnit[1],
+                                &w.metresPerUnit[2], &w.footZ, &height) != 6 || !parseName(stem, n) || height <= 0.0f ||
+                    !(w.metresPerUnit[0] > 0.0f && w.metresPerUnit[1] > 0.0f && w.metresPerUnit[2] > 0.0f))
+                    continue;
+                w.invHeight = 1.0f / height;
+                m->wind[n] = w;
+                m->windShapes.insert(n.bits & 0x3FFFu);
+            }
+            std::fprintf(stderr, "[textures] wind list %s: %zu textures\n", list, m->wind.size());
+        }
         const char *enabled = std::getenv("VCS_TEXTURE_REPLACEMENTS");
         if (!enabled || enabled[0] != '1') return;
         const char *dir = std::getenv("VCS_TEXTURE_PACK");
@@ -176,7 +259,29 @@ namespace render
         if (!m->names.empty())
             std::fprintf(stderr, "[textures] summary: %u/%zu pack files matched, %u image loads\n", m->matched, m->names.size(), m->loaded);
     }
-    bool TextureReplacements::candidate(uint32_t bits) const { return m->shapes.contains(bits & 0x3FFFu); }
+    bool TextureReplacements::candidate(uint32_t bits) const
+    {
+        return !m->dumpDir.empty() || m->shapes.contains(bits & 0x3FFFu) || m->windShapes.contains(bits & 0x3FFFu);
+    }
+    const WindModel *TextureReplacements::wind(uint64_t pixels, uint64_t palette, uint32_t bits) const
+    {
+        if (m->wind.empty()) return nullptr;
+        const auto it = m->wind.find({pixels, palette, bits});
+        return it == m->wind.end() ? nullptr : &it->second;
+    }
+    bool TextureReplacements::dumping() const { return !m->dumpDir.empty(); }
+    void TextureReplacements::dump(uint64_t pixels, uint64_t palette, uint32_t bits, uint32_t width, uint32_t height,
+                                   const uint32_t *rgba)
+    {
+        char name[64];
+        if (palette)
+            std::snprintf(name, sizeof(name), "%016llx-%016llx-%08x", (unsigned long long)pixels, (unsigned long long)palette, bits);
+        else
+            std::snprintf(name, sizeof(name), "%016llx-%08x", (unsigned long long)pixels, bits);
+        if (m->dumpDir.empty() || !m->dumped.insert(name).second) return;
+        if (!writePng(m->dumpDir / (std::string(name) + ".png"), width, height, rgba))
+            std::fprintf(stderr, "[textures] could not write dump %s\n", name);
+    }
     uint32_t TextureReplacements::find(uint64_t pixels, uint64_t palette, uint32_t bits)
     {
         // Opt-in diagnostic: exact names computed by the renderer (never texture data).

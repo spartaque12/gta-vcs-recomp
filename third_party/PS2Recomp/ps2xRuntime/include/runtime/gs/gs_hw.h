@@ -119,6 +119,9 @@ void gsHwSetFrameSize(uint32_t width, uint32_t height);
 // [gta-recomp] Alpha dual pass (skygfx's): alpha-blended draws with a low alpha-test reference and depth writes drawn
 // twice - texels at alpha >= 0x40 (of 0x80) with depth writes, the rest blended without. Any thread; takes effect at once.
 void gsHwSetAlphaDualPass(bool on);
+// [gta-recomp] Vegetation wind sway on native world draws whose texture a wind list names (render::TextureReplacements,
+// VCS_WIND_LIST): the noise field's position (x, y, metres) and the sway's strength (metres; 0 = off). Any thread.
+void gsHwSetWind(float x, float y, float strength);
 // [gta-recomp] The size the picture is shown at (the window's letterboxed area); 0 = the render targets' size.
 void gsHwSetOutputSize(uint32_t width, uint32_t height);
 // [gta-recomp] Render targets named by what they are (docs/FULLY_NATIVE.md step 3d): the game says which buffer (FBP,
