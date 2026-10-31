@@ -5,7 +5,7 @@
 // looks at the game (game-internals.md 12b): whether the player drives (the Driving keys) and which camera is active
 // (the mouse turns the on-foot camera itself).
 #include "game/vcs_input.h"
-#include "game/vcs_firstperson.h"
+#include "modapi/mod_loader.h"
 
 #include "game/vcs_freecam.h"
 #include "platform/platform.h"
@@ -371,9 +371,9 @@ namespace vcs::input
             const auto now = std::chrono::steady_clock::now();
             const float dt = g_mouse.last.time_since_epoch().count() ? std::chrono::duration<float>(now - g_mouse.last).count() : 0.0f;
             const uint32_t frame = g_rdram ? rd32(kFrameCounter) : 0;
-            // first person on foot (game/vcs_firstperson.h): the mouse and the right stick turn its view, the game's
-            // camera gets no stick
-            const bool firstPerson = !freeCamera && firstperson::looking();
+            // a mod's view (CameraAim.asi's first person / free aim, modapi/mod_loader.h): the mouse and the right
+            // stick turn it, the game's camera gets no stick
+            const bool firstPerson = !freeCamera && modapi::lookActive();
             if (freeCamera)
                 g_mouse = {};
             else if (frame != g_mouse.frame || dt >= 0.25f || dt == 0.0f)
@@ -399,7 +399,7 @@ namespace vcs::input
                 {
                     // the right stick at full tilt turns 2.5 rad/s (the game's top speed); a stick pulled back looks up
                     const float t = std::clamp(dt, 0.0f, 0.1f) * 2.5f, y = rd32(kInvertLook) ? -ry : ry;
-                    firstperson::look((on ? -dx * m.mouseLook : 0.0f) - rx * t, (on ? up * m.mouseLook : 0.0f) + y * t);
+                    modapi::look((on ? -dx * m.mouseLook : 0.0f) - rx * t, (on ? up * m.mouseLook : 0.0f) + y * t);
                     g_mouse.pitch = 0.0f;
                 }
                 else if (on && game.footCamera)
@@ -643,17 +643,8 @@ namespace vcs::input
         s.defaultValue = KEY_F6;
         settings::add(s);
 
-        s = {};
-        s.key = "controls.firstperson_key";
-        s.page = kKeys;
-        s.section = "Menus";
-        s.label = "First person";
-        s.help = "Switches first person on foot on and off (Game page). On a gamepad: press Back + R3 together.";
-        s.type = Type::Key;
-        s.group = "keys";
-        s.optional = true;
-        s.defaultValue = KEY_B;
-        settings::add(s);
+        // the DLL mods' hotkeys (modapi/mod_loader.h): CameraAim.asi's first person (B, Back + R3)
+        modapi::registerHotkeySettings(kKeys.c_str());
 
         // ---- Gamepad ---------------------------------------------------------------------------------------------
         for (const Control &c : kControls)

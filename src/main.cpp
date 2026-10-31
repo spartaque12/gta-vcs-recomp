@@ -21,15 +21,14 @@
 #include "disc/iso_image.h"
 #include "disc/vcs_disc_id.h"
 #include "game/vcs_display.h"
-#include "game/vcs_firstperson.h"
 #include "game/vcs_framerate.h"
-#include "game/vcs_freeaim.h"
 #include "game/vcs_movie.h"
 #include "game/vcs_hud.h"
 #include "game/vcs_jolt.h"
 #include "game/vcs_input.h"
 #include "game/vcs_project2dfx.h"
 #include "game/vcs_volume.h"
+#include "modapi/mod_loader.h"
 #include "platform/platform.h"
 #include "render/presenter.h"
 #include "rhi/rhi.h"
@@ -566,8 +565,9 @@ namespace
         s.defaultValue = 0;
         settings::add(s);
 
-        vcs::firstperson::registerSettings(); // first person on foot (game/vcs_firstperson.h)
-        vcs::freeaim::registerSettings();     // SA's free aim (game/vcs_freeaim.h)
+        // the mods built as DLLs (build\scripts\*.asi; modapi/mod_loader.h): loaded here, their settings rows here - first
+        // person, free aim and field of view (CameraAim.asi) where they were when built in
+        vcs::modapi::registerPlugins();
         vcs::jolt::registerSettings();        // death ragdolls, Jolt Physics (game/vcs_jolt.h)
 
         s = {};
@@ -857,7 +857,7 @@ int main(int argc, char *argv[])
                                     [](PS2Runtime &, void *) {
                                         altEnter();
                                         followWindowAspect();
-                                        vcs::freeaim::drawCrosshair(); // under the menus (the background list)
+                                        vcs::modapi::drawCallbacks(); // the mods' (a crosshair): under the menus
                                         ui::drawSettingsMenu();
                                         ui::drawTrainerMenu();
                                         ps2control::setGameInputBlocked(ui::settingsMenuBlocksInput() || ui::trainerMenuBlocksInput());

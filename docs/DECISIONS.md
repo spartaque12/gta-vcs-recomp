@@ -952,3 +952,32 @@ upstream, and nothing was pushed.
 - **The pack** is in `build/textures/SLUS-21590/replacements/` beside `build/vcs.exe`, where the PR's discovery finds
   it; `build/` is ignored, so it never reaches git or a release. The option stays off by default (F2 > Graphics >
   Texture replacements, then restart). Checks and the low-resolution digit caveat: TEXTURE_PACKS.md, Checks.
+
+## 2026-10-31 - Mods as DLLs (.asi) and the VCS-mods repository (the user's request)
+
+The user asked to separate each mod, to put them in a repository "VCS mods", and whether mods could ship as ASIs. They
+can: vcs.exe now loads `build\scripts\*.asi` (and `*.asi` beside it) through a C API (docs/MODDING.md), and the camera /
+aim mods left the exe for `CameraAim.asi` in spartaque12/VCS-mods. Phase 1; the rest is listed in MODDING.md "Next".
+- **A C ABI, not C++**: a versioned table of function pointers (`src/modapi/vcs_mod_api.h`), strings and C callbacks
+  with a user pointer; std::function, std::string and the settings / control types stay on each side (the mod's
+  `mod.h` adapts them back to the style the code was written in). A mod built once keeps working with later exes of
+  the same API version; a mod for another version is refused with a log line, never half-loaded.
+- **The guest context through offsets**: the API hands over where the GPRs, pc and FPU registers are in the runtime's
+  R5900Context instead of the runtime headers, so a mod needs no part of the port's source to build (only the API
+  header and Dear ImGui) and survives runtime changes that move other fields.
+- **Same compiler, same Dear ImGui**: hooks share the guest calling convention (clang's preserve_none), so mods are built
+  with clang-cl / clang; the crosshair draws into the exe's ImGui context with the exe's allocator, so the mod builds
+  the same ImGui (vendored in VCS-mods) and checks the version and structure sizes the API reports (no crosshair
+  otherwise, the rest works).
+- **Two hook phases**: the camera mod's hooks and the ragdolls' share three game functions, and their order matters
+  (game-internals.md 12o): VcsModInstall runs where first person was installed (after the free camera, before the
+  ragdolls), VcsModInstallLate where free aim was (after them). The behaviour is as when built in.
+- **The exe keeps the coupling points, not the mod**: the hotkey row and the Back + R3 chord, the mouse / right-stick
+  look and the background draw list are API services (`add_hotkey`, `set_look_handler`, `add_draw_callback`), so the
+  key row, the chord, the look and the crosshair are gone with the DLL and come back with it - nothing in the exe
+  names first person any more. Settings rows register where the built-in ones did (the Game page after "Window"), with
+  the same keys, so the player's vcs.ini carries over; while the mod is absent its lines stay in vcs.ini untouched.
+- **Without any DLL the game is v0.0.1 plus the mods still built in** (ragdolls, Project2DFX, the streamed-file
+  override): checked in hidden runs (MODDING.md, game-internals.md 12o). `VCS_MODS=0` loads none.
+- **Not moved yet**: Jolt and the streamed-file override / weapon tools (other work in progress on them) and
+  Project2DFX (its guest tail-call chains need `register_function` in the API).

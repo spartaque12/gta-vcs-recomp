@@ -1916,7 +1916,8 @@ mission's runtime IP is 0x3CAE3 + (IP - its start)) and reproduced with the rig.
 
 ### 12c. Bones, near plane and heading - first person on foot (2026-10-31)
 
-Found for `src/game/vcs_firstperson.cpp` (the user's port of UltimateFP's on-foot camera) with the rig on a copy of
+Found for `src/game/vcs_firstperson.cpp` (the user's port of UltimateFP's on-foot camera; since 2026-10-31 in the
+CameraAim.asi mod, spartaque12/VCS-mods `plugins/CameraAim/src/firstperson.cpp` - 12o) with the rig on a copy of
 the user's card (Fort Baxter): `findvec` near the player's head height, write watches on the hits, the generated code.
 - **Skeleton**: a ped's anim tree (`RslTAnimTree`, as in aap's RSL notes) has **+0x4 the node count (25 for peds)**
   and **+0x28 the bone matrices**: world matrices, 0x40 bytes each (rows: X, Y, Z, position; w lanes 0). The ped
@@ -1962,7 +1963,7 @@ the user's card (Fort Baxter): `findvec` near the player's head height, write wa
 
 ### 12d. Aiming: lock-on, the gun's pose, the shot's line - free aim (2026-10-31)
 
-Found for `src/game/vcs_freeaim.cpp` (the user's SA-style free aim) with the rig on a copy of the user's card (a write
+Found for `src/game/vcs_freeaim.cpp` (the user's SA-style free aim; now CameraAim.asi's `freeaim.cpp`, 12o) with the rig on a copy of the user's card (a write
 watch on the player's +0x820 while R1 locked on to a spawned ped, pokes of the aim fields) and the generated code.
 - **R1's lock-on**: CPlayerPed::ProcessControl (FUN_00230640) calls ProcessPlayerWeapon (FUN_00235d30) at 0x23158C;
   on R1 it calls **CPlayerPed::FindWeaponLockOnTarget (FUN_002d68c8)** at 0x236628 / 0x2366D4. Weapon types 19..35
@@ -2055,7 +2056,8 @@ watch on the player's +0x820 while R1 locked on to a spawned ped, pokes of the a
 
 ### 12e. Vehicle cameras, in-car first person, vehicle glass, the field of view (2026-10-31)
 
-Found for in-car first person (`src/game/vcs_firstperson.cpp`) and `src/game/vcs_carglass.cpp` with the rig (car 211
+Found for in-car first person (`src/game/vcs_firstperson.cpp`) and `src/game/vcs_carglass.cpp` (both CameraAim.asi's
+now, 12o) with the rig (car 211
 Sentinel, the PCJ-600) and the generated code.
 - **Modes**: CamControl (FUN_00372450) asks for a mode in the halfword 0x6F43E0; CCam::Process switches on mode - 1
   (table 0x4B1870). **18** (FUN_0029faf0) behind cars, bikes, BMX, quad, helis, planes (vehicle +0x354 not 1 / 2; set
@@ -2460,6 +2462,22 @@ Found with RAM dumps of a hidden run (the rig's `dump`) and the models read from
   say, half alpha is blended over what is already drawn and also hides everything drawn after it behind it. Foliage
   textures with broad half-transparent areas (VC PC textures box-filtered to a quarter) showed the sky through as pale
   patches; with alpha 0 / 128 only the bilinear edge band between texels is left half transparent.
+
+### 12o. Game functions several mods hook - their order, for mods as DLLs (2026-10-31)
+
+Found while moving the camera mods into CameraAim.asi (docs/MODDING.md), from every `replaceFunction` in `src/`: four
+game functions are hooked by more than one mod, and which hook wraps which is part of what they do. A DLL mod's hooks go
+in at two points of `applyVcs` for this reason (VcsModInstall, VcsModInstallLate).
+| Function | Hooked by, outermost first | Why the order |
+|---|---|---|
+| FUN_002A2ED0 CCam::ProcessSpecialHeightRoutines | first person (mod), the free camera (exe) | the free camera, installed first, is the original first person calls while it flies |
+| FUN_0024E8D0 an anim tree's bones (ra 0x3C3280) | ragdolls, first person (mod) | both only note the tree; kept in the order of the next row (first person in before the ragdolls: VcsModInstall) |
+| FUN_0020C310 between the bones and the ped's draw (ra 0x200740) | ragdolls, first person (mod) | the same: first person's head collapse runs on the bones the ragdoll left |
+| FUN_002D0870 CWeapon::ProcessLineOfSight | free aim (mod), ragdolls | free aim puts the shot on the camera's line first, so the ragdolls' bullet test sees that line (VcsModInstallLate) |
+Checked with the mod: hidden runs on a copy of the card (port 47690) - first person on foot and in car 211 (glass
+hidden, `carglass` hidden = the car), free aim's shoulder camera with the crosshair drawn by the DLL into the exe's
+Dear ImGui context, a pistol aimed by the mouse taking a ped from 100 to 35 health; without the DLL the rows, the hotkey
+row and the `firstperson` command are gone and the game plays as v0.0.1.
 
 ## 13. Open questions / next research targets
 

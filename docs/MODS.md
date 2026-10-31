@@ -17,6 +17,19 @@ The details are in the docs named in each row; decisions in DECISIONS.md, progre
 | Project2DFX | distant lights, more stars, distant cars / boats (ThirteenAG's Project2DFX for VCS), and the mod's palms | Game / Graphics, `p2dfx.*` rows | off | done: lights, stars, distant cars checked; boats / flight ceiling not seen; palms + trees installed; Alpha dual pass (Graphics) | game-internals.md 6l |
 | RenderHook-style graphics | AO, tonemapping, sun shadows ... in the native renderer | - | - | parked | RENDERHOOK_PLAN.md |
 
+## Where each mod lives (2026-10-31: mods as DLLs, docs/MODDING.md)
+
+| Mod | Lives in | Install |
+|---|---|---|
+| First person (on foot, vehicles), free aim, manual drive-by, car glass, field of view | `CameraAim.asi` - spartaque12/VCS-mods `plugins/CameraAim` (no longer in vcs.exe) | `build\scripts\CameraAim.asi` (installed); without it the rows, the B key / Back + R3 and the crosshair are gone |
+| Death ragdolls (Jolt Physics) | vcs.exe: `src/game/vcs_jolt.cpp`, `src/physics` | built in; next to move to a DLL |
+| Project2DFX | vcs.exe: `src/game/vcs_project2dfx.cpp` | built in; next (needs `register_function` in the API) |
+| Streamed file override, Immersive Weapons Pack | vcs.exe: `src/game/vcs_stream_override.cpp`; `tools/weapon_convert.py` | built in; next |
+| Texture packs + HD HUD | vcs.exe (upstream PR #8) | built in (part of the port, not a mod to move) |
+
+`VCS_MODS=0` starts without any DLL mod. Build CameraAim.asi from VCS-mods (its README); it needs a vcs.exe with the
+mod API (this folder's, or the fork's `vcs-mods` branch).
+
 ## Testing and building alongside play
 
 The user plays from `build\vcs.exe`: a build cannot link while it runs, and tests run on a copy of the exe started
@@ -30,3 +43,5 @@ aiming mods (first person, vehicles, free aim, drive-by, glass, field of view), 
 weapon converter, the RenderHook plan, the crosshair fix, upstream PR #8 merged (texture packs), and the Jolt ragdolls.
 The release folder is not a repository: finished work is copied into a clone of the fork (`F:\games\gta-vcs-recomp-fork`)
 without other sessions' work in progress or any game data, committed and pushed. Converted assets (weapons, palms, the HUD pack) are never pushed.
+The DLL mods have their own repository, spartaque12/VCS-mods (`F:\games\VCS-mods`): the API header, each mod's sources
+and CMake, no binaries or game data; the port's side (the loader, `src/modapi`) is on the fork's `vcs-mods` branch.

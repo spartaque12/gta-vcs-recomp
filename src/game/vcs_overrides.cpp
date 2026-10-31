@@ -20,16 +20,14 @@
 #include "game/vcs_inflate.h"
 #include "game/vcs_sound.h"
 #include "game/vcs_stream.h"
-#include "game/vcs_firstperson.h"
-#include "game/vcs_carglass.h"
 #include "game/vcs_stream_override.h"
-#include "game/vcs_freeaim.h"
 #include "game/vcs_freecam.h"
 #include "game/vcs_hud.h"
 #include "game/vcs_jolt.h"
 #include "game/vcs_project2dfx.h"
 #include "game/vcs_rsl_native.h"
 #include "game/vcs_rsl_world.h"
+#include "modapi/mod_loader.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_perf.h"
@@ -900,12 +898,13 @@ namespace
         vcs::installDisplayHooks(runtime); // widescreen (settings menu)
         vcs::installHudHooks(runtime);     // 2D at the RenderWare level
         vcs::freecam::install(runtime);    // the trainer's free camera (game/vcs_freecam.h)
-        vcs::firstperson::install(runtime); // first person on foot, chained after the free camera (game/vcs_firstperson.h)
+        // the DLL mods' hooks (modapi/mod_loader.h), chained after the free camera: CameraAim.asi's camera, bones and
+        // field of view (first person)
+        vcs::modapi::install(runtime);
         // death ragdolls (Jolt Physics): its bone hooks chain to first person's; free aim's line of sight wraps its own
         // (it sees the camera's line), so before free aim (game/vcs_jolt.h)
         vcs::jolt::install(runtime);
-        vcs::freeaim::install(runtime);     // SA's free aim: no lock-on, shots along the camera (game/vcs_freeaim.h)
-        vcs::carglass::install(runtime);    // in-car first person: the vehicle's windows not drawn (game/vcs_carglass.h)
+        vcs::modapi::installLate(runtime); // the DLL mods' late hooks: CameraAim.asi's free aim and car glass
         vcs::streamoverride::install(runtime); // streamed files from mods/stream/<id>.* (game/vcs_stream_override.h)
         vcs::p2dfx::install(runtime);       // Project2DFX: distant lights, stars, traffic (game/vcs_project2dfx.h)
         vcs::installFrameRateHooks(runtime); // 30 / 60 fps (game/vcs_framerate.h)

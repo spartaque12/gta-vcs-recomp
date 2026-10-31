@@ -19,6 +19,7 @@ detailed knowledge lives in `docs/`:
 | [docs/TRAINER.md](docs/TRAINER.md) | The trainer (F5): what it does, how (the game's script commands), its check |
 | [docs/LINUX.md](docs/LINUX.md) | The Linux build: packages, flags, the Vulkan backend, what differs from Windows, the work list |
 | [docs/LAUNCHER.md](docs/LAUNCHER.md) | The launcher and releases: what a release holds, the player's flow, the tools behind each button, the `@vcs` events, what was checked |
+| [docs/MODDING.md](docs/MODDING.md), [docs/MODS.md](docs/MODS.md) | Mods as DLLs (`build\scripts\*.asi`, the C API in `src/modapi`; the mods in spartaque12/VCS-mods); every mod, where it lives, how it was checked |
 
 **When you learn something about the game, write it into docs/game-internals.md in the same change.**
 Record addresses and how you found them. When something is weird, use judgment, fix or work around it,
@@ -47,6 +48,7 @@ choices).
 | `src/render/`, `src/rhi/`, `src/platform/` | Presenter + shaders (HLSL; DXBC by fxc, SPIR-V by `tools/hlsl_spirv.py`), the RHI (backends `d3d11/`, `vulkan/`, `null/`; only they see a graphics API), SDL3 platform layer |
 | `src/sound/` | Sony's libsd on the host (the native sound driver in `src/game/vcs_sound.cpp` drives the SPU2 through it) |
 | `src/settings/`, `src/ui/` | Settings registry + vcs.ini, the in-game settings menu (F2), the trainer menu (F5) |
+| `src/modapi/` | The mod loader and its C API (docs/MODDING.md): DLL mods' settings, hotkeys, look, drawing and hooks |
 | `src/debug/` | Crash handler, watchdog, sampling profiler, self-test, memory watch |
 | `third_party/PS2Recomp/ps2xRuntime` | The runtime (EE, VIF, VU1, GS HW backend, IOP host, stubs); our changes marked `[gta-recomp]` |
 | `src/physics/`, `third_party/JoltPhysics` | Jolt Physics 5.6.0 (vendored unmodified, MIT) behind a plain API - the ragdolls (`src/game/vcs_jolt.cpp`); a library of its own so Jolt's flags never reach the generated code |
