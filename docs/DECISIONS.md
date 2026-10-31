@@ -741,3 +741,17 @@ settings menu (`src/game/vcs_freeaim.cpp`, game-internals.md 12d).
   every vehicle type (other alpha materials on a vehicle go too).
 - **The field of view where the frame hands it to the renderer** (CDraw::SetFOV from CCamera::Process), not in the
   CCam: the car camera eases its FOV from last frame's (speed widening), which a per-frame scale would compound.
+
+## 2026-10-31 - The Immersive Weapons Pack port: converted models through a mods folder (the user's request)
+
+- **Only weapons VCS has**: each pack weapon replaces the model (and texture dictionary) of an existing VCS weapon type;
+  no new weapons, slots or model ids. Pack weapons without a VCS counterpart are left out.
+- **Files, not a rebuilt disc**: converted files go to `<mods>/stream/<CStreaming id>.<ext>` and
+  `src/game/vcs_stream_override.cpp` puts them in the game's own streaming buffers (before-hooks on RequestModel - the
+  size word, so the buffer is big enough - and ConvertBufferToObject - the copy); the game relocates and uses them as
+  its own. Nothing of the game is shipped: the user converts the pack with tools/weapon_convert.py against their disc.
+  Generic on purpose (any streamed model / dictionary / animation id), off with `VCS_STREAM_OVERRIDE=0`.
+- **The conversion keeps the game's formats** (rigid lit 'ldm' + 'xet', game-internals.md 12g) so every render path
+  (VU1, native HLE, D3D11 / Vulkan) draws them unchanged; SA's 1024-px DXT textures become 128x128 8-bit (a parameter),
+  the parts of an animated SA gun are merged at their rest places, the model is moved so its box centre is the VCS
+  model's (where the hand holds it).

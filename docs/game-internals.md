@@ -2032,6 +2032,55 @@ counterparts, from the generated code (not all checked at run time):
   runs with round-toward-zero, so a native physics step needs the host rounding mode restored around it.
 - Milestone 1 (death ragdolls) is built on the step, the bones, ApplyMoveSpeed and SetDie, checked at run time: 12h.
 
+### 12g. Weapon models, their textures, streaming, reloading - the Immersive Weapons Pack port (2026-10-31)
+
+Found with the rig on a copy of the user's card (iwp probes: weapon info / model info / streaming info dumps, write watches
+on a model's load state, a weapon's clip and state) and by reading the chunks straight from the disc.
+- **CWeaponInfo** (FUN_00407120, 0x70 each): +0 flags, +4 fire type, +8 range, +0xC firing rate, **+0x10 reload time (ms)**,
+  +0x14 clip size, +0x18 damage, +0x30 fire offset, **+0x40 anim group**, +0x44.. anim loop / fire frames, **+0x60 model,
+  +0x64 second model** (-1 none), +0x68 slot. Models: knuckles..chainsaw 331..341, grenade 342, tear gas 343, molotov 344,
+  rocket 345, **Colt45 346**, Python 347, Ruger 348, shotguns 349..351, m4 352, Tec9 353, Uzi 354, silenced Ingram 355, MP5
+  356, sniper 357, laser scope 358, rocket launcher 359, flamethrower 360, M60 361 (and the heli cannon), minigun 362 (+366),
+  detonator 363, camera 364, binoculars 367, land mine 368. tools/weapon_convert.py has the table (with the dictionaries).
+- **Model info** (CWeaponModelInfo, 0x44 bytes, vtable 0x491938): +8 name hash, +0xC the loaded element, +0x1C refs (u16),
+  **+0x1E texture dictionary slot** (u16; Colt45 293), +0x3C weapon type.
+- **CStreaming** (`*0x489FF8`): +8 first texture dictionary id (7534), +0xC first collision id (8365), +0x10 first animation
+  id (8392); **+200 -> the streaming infos**, 0x18 bytes per id: +0xC load state (1 loaded, 3 requested), +0x10 position and
+  +0x14 size, both in sectors of GTA3PS2.IMG. Dictionary id = 7534 + the slot (Colt45: 7827). In the IMG each weapon's 'xet'
+  sits just before its 'ldm' (Colt45: 0x2DBE, 2 sectors; 0x2DC0, 3 sectors); an 'anim' chunk (id 8408, 0x2DC3) follows.
+- **Loading**: CStreaming::RequestModel **FUN_003C7ED8**(streaming, id, flags) allocates size x 2048 bytes (FUN_003C6478)
+  and reads that many sectors (FUN_002213D0 -> FUN_00220EC8); FUN_003C7048 checks the bytes read against the size and calls
+  **ConvertBufferToObject FUN_003C72A8**(streaming, id, buffer): models FUN_003C7498, dictionaries FUN_003C7918, collision
+  FUN_003C79A8, animations FUN_003C7AD8, each relocating the chunk in place (FUN_00324A50), then state 1. So a bigger file
+  only needs a bigger size word before the request: `src/game/vcs_stream_override.cpp` (DECISIONS.md).
+- **'ldm' chunk** (Leeds relocatable chunk: ident, shrink, fileEnd, dataEnd, relocation table + count, global table,
+  u16 classes, u16 functions; pointers are chunk offsets): +0x20 -> the RslElement, then the materials' pointer array.
+  Material 16 bytes {texture-name pointer (the name strings follow the relocation table), colour (0xFF969696 for guns),
+  2, 0}. RslElement 0x38 bytes {0x0004AA01, frame, frame link x2, 0, geometry +0x14, clump, link x2, render callback +0x24
+  (the one entry of the global table, filled at load), u16 model id +0x28}. RslNode 0xB0 {0x0300AA00, parent, object
+  list x2, modelling matrix +0x10, LTM +0x50, child, next, root +0x98, ..., name +0xA8}. RslGeometry {8, 0, 1, materials,
+  count, 0x10, skin, 0} then the **PS2 geometry** at +0x20: bounding sphere, **(meshes << 20 | bytes to the end of the
+  packets)**, 7, u16 strip vertices of all meshes, u16 header size (0x40 + 0x30 x meshes), int16 box min / max, **scale
+  xyz, centre xyz** (vertex = int16 / 32768 x scale + centre); mesh headers 0x30: sphere, **uv scale xy**, a value added to
+  log2(texture width) x 16 for FUN_00317F10 (0x25 on the Colt45), packet offset from the first packet, u16 triangles
+  (strip vertices - 2), i16 material, int16 box. Each mesh's packet: DMA RET tag, then batches of <= 70 strip vertices
+  overlapping by 2 (no restarts but degenerate triangles): UNPACK V4-32 to 0 (0, 0, n, n | 0x8000), STMASK / STROW 0 +
+  **V3-16 positions** at 1, STMASK 0x50505050 / STROW (0, 0, 255, 0) + **V2-8 uv** (unsigned; 127 = 1.0 x the uv scale, which the
+  render passes doubled) at 0x8D, **V3-8 normals** (length 127) at 0x47, MSCAL 6 - the rigid lit pipeline (6d).
+  Per mesh the render (FUN_0039E828 loop) binds the material's texture (FUN_00408F30), the uv scale (FUN_00317D48) and
+  CALLs the packet (FUN_002F7D58).
+- **'xet' chunk** (a texture dictionary): +0x20 {0x00008606, 0, texture list}; textures 0x60 {raster, dictionary, link x2,
+  name[32], mask[32], 1}; rasters 0x10 {0, (0x45 << 16 | row bytes) for 4-bit, (0x25 << 16 | row bytes) for 8-bit, pixels,
+  **log2 w | log2 h << 6 | depth << 12 | mips << 20 | per-mip swizzle bits << 24**}; the CLUT follows the last mip (16 or 256
+  RGBA, alpha 0x80 = opaque, 256 in CSM1 order). The bind (FUN_00317FB8) reads these: depth 4 -> PSMT4, 8 -> PSMT8; all
+  weapon / ped textures seen are linear (swizzle 0), up to 256x256 8-bit.
+- **Reloading**: a ped's CWeapon array is at ped +0x574, 0x1C each: **+4 type, +8 state (2 reloading), +0xC clip, +0x10
+  total, +0x14 the reload's end time**. CWeapon::Fire (FUN_002C0F98) sets state 2 at **0x2C1998** when the clip is empty,
+  end = CTimer ms (0x4CD104) + info +0x10; CWeapon::Update **FUN_002CE018** (from CPlayerPed::ProcessControl 0x231694)
+  calls **CWeapon::Reload FUN_002CDFB0** (clip = min(total, clip size), 0x2CE000) and state 0 when the time is up.
+- Checked: the Immersive Weapons Pack's Colt45 (SA DFF, 16.5k triangles, 9 textures at 128x128) converted by
+  tools/weapon_convert.py (249 + 79 sectors) loads, draws in the hand and fires / reloads in a hidden run (build/iwp).
+
 
 ## 13. Open questions / next research targets
 
