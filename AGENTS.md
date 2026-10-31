@@ -49,6 +49,7 @@ choices).
 | `src/settings/`, `src/ui/` | Settings registry + vcs.ini, the in-game settings menu (F2), the trainer menu (F5) |
 | `src/debug/` | Crash handler, watchdog, sampling profiler, self-test, memory watch |
 | `third_party/PS2Recomp/ps2xRuntime` | The runtime (EE, VIF, VU1, GS HW backend, IOP host, stubs); our changes marked `[gta-recomp]` |
+| `src/physics/`, `third_party/JoltPhysics` | Jolt Physics 5.6.0 (vendored unmodified, MIT) behind a plain API - the ragdolls (`src/game/vcs_jolt.cpp`); a library of its own so Jolt's flags never reach the generated code |
 | `game/vcs/` | Recompiler config, function map, VU1 upload list |
 | `tools/` | Python 3 tools (standard library only) - see below |
 | `launcher/` | `VCSLauncher.exe` (SDL3 + Dear ImGui, a CMake project of its own): disc, build tools, build, play - a front end over `tools/` (docs/LAUNCHER.md) |
@@ -92,6 +93,7 @@ python tools/soundcheck.py all OUT [--mission N]             # native sound vs t
 python tools/trainer_check.py [OUT] [--vehicles all]          # every trainer feature, checked in the game's memory
 python tools/finale_check.py [OUT] [--story] [--full]         # Last Stand's end from the trainer: final cutscene, credits
 python tools/controls_check.py [OUT]                          # bindings, presets, reset, vibration, volume levels; menu screenshots
+python tools/ragdoll_check.py [OUT]                           # death ragdolls (Jolt): falls, shotgun / car kills, corpse shots, blasts
 python tools/irxdis.py --decompile X.IRX OUT.c                # an IOP module as C (headless Ghidra; analysis only)
 python tools/eedecomp.py 0x2f7d58 [...] [--out FILE]          # game functions as C (the analysed EE project; analysis only)
 ```

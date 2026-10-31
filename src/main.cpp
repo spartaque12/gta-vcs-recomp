@@ -26,6 +26,7 @@
 #include "game/vcs_freeaim.h"
 #include "game/vcs_movie.h"
 #include "game/vcs_hud.h"
+#include "game/vcs_jolt.h"
 #include "game/vcs_input.h"
 #include "game/vcs_volume.h"
 #include "platform/platform.h"
@@ -566,6 +567,7 @@ namespace
 
         vcs::firstperson::registerSettings(); // first person on foot (game/vcs_firstperson.h)
         vcs::freeaim::registerSettings();     // SA's free aim (game/vcs_freeaim.h)
+        vcs::jolt::registerSettings();        // death ragdolls, Jolt Physics (game/vcs_jolt.h)
 
         s = {};
         s.key = "display.msaa";

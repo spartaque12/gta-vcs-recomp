@@ -26,6 +26,7 @@
 #include "game/vcs_freeaim.h"
 #include "game/vcs_freecam.h"
 #include "game/vcs_hud.h"
+#include "game/vcs_jolt.h"
 #include "game/vcs_rsl_native.h"
 #include "game/vcs_rsl_world.h"
 #include "ps2_runtime.h"
@@ -899,6 +900,9 @@ namespace
         vcs::installHudHooks(runtime);     // 2D at the RenderWare level
         vcs::freecam::install(runtime);    // the trainer's free camera (game/vcs_freecam.h)
         vcs::firstperson::install(runtime); // first person on foot, chained after the free camera (game/vcs_firstperson.h)
+        // death ragdolls (Jolt Physics): its bone hooks chain to first person's; free aim's line of sight wraps its own
+        // (it sees the camera's line), so before free aim (game/vcs_jolt.h)
+        vcs::jolt::install(runtime);
         vcs::freeaim::install(runtime);     // SA's free aim: no lock-on, shots along the camera (game/vcs_freeaim.h)
         vcs::carglass::install(runtime);    // in-car first person: the vehicle's windows not drawn (game/vcs_carglass.h)
         vcs::streamoverride::install(runtime); // streamed files from mods/stream/<id>.* (game/vcs_stream_override.h)

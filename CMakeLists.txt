@@ -51,8 +51,9 @@ file(GLOB_RECURSE VCS_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/src/*.cpp"
 )
 list(REMOVE_ITEM VCS_SOURCES "${CMAKE_SOURCE_DIR}/src/main.cpp")
-# The platform layer, RHI and renderer are their own libraries (src/*/CMakeLists.txt), linked into the runtime.
-list(FILTER VCS_SOURCES EXCLUDE REGEX "/src/(platform|rhi|render)/")
+# The platform layer, RHI and renderer are their own libraries (src/*/CMakeLists.txt), linked into the runtime; so is
+# the physics (src/physics: Jolt's flags stay off the generated code).
+list(FILTER VCS_SOURCES EXCLUDE REGEX "/src/(platform|rhi|render|physics)/")
 # VU1 microprograms compiled to C++ by tools/vu1_recomp.py (from the user's ELF; see game/vcs/vu1_uploads.txt)
 if(EXISTS "${CMAKE_SOURCE_DIR}/generated/vu1/vu1_compiled.cpp")
     list(APPEND VCS_SOURCES "${CMAKE_SOURCE_DIR}/generated/vu1/vu1_compiled.cpp")
@@ -67,6 +68,7 @@ if(VCS_HAVE_GENERATED)
     add_subdirectory(src/platform)
     add_subdirectory(src/rhi)
     add_subdirectory(src/render)
+    add_subdirectory(src/physics) # Jolt Physics: the ragdolls (game/vcs_jolt.cpp)
     add_library(vcs_host INTERFACE)
     target_link_libraries(vcs_host INTERFACE vcs_platform vcs_render)
     set(PS2X_HOST_PLATFORM_TARGET vcs_host CACHE STRING "" FORCE)
@@ -88,6 +90,7 @@ if(VCS_HAVE_GENERATED)
     endif()
     target_include_directories(ps2EntryRunner PRIVATE "${CMAKE_SOURCE_DIR}/src")
     target_link_libraries(ps2EntryRunner PRIVATE vcs_host) # main.cpp: settings menu (Dear ImGui), presenter aspect
+    target_link_libraries(ps2EntryRunner PRIVATE vcs_physics) # game/vcs_jolt.cpp: physics/ragdoll.h (no Jolt flags)
     # Our own sources aren't generated code; keep them out of the unity batches.
     set_source_files_properties(${VCS_SOURCES} "${CMAKE_SOURCE_DIR}/src/main.cpp"
         TARGET_DIRECTORY ps2EntryRunner
@@ -100,7 +103,7 @@ endif()
 # so the sampling profiler and debuggers can name host functions.
 option(VCS_RUNTIME_DEBUG_INFO "Emit CodeView debug info for runtime + launcher" ON)
 if(VCS_RUNTIME_DEBUG_INFO AND MSVC)
-    foreach(t ps2_runtime ps2_iop)
+    foreach(t ps2_runtime ps2_iop vcs_physics Jolt)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE /Z7)
         endif()
@@ -114,7 +117,7 @@ if(VCS_RUNTIME_DEBUG_INFO AND MSVC)
 elseif(VCS_RUNTIME_DEBUG_INFO)
     # Linux: line tables for the crash handler / profiler (src/debug, symbolized with llvm-symbolizer); frame pointers
     # for their backtraces
-    foreach(t ps2_runtime ps2_iop)
+    foreach(t ps2_runtime ps2_iop vcs_physics Jolt)
         if(TARGET ${t})
             target_compile_options(${t} PRIVATE -gline-tables-only -fno-omit-frame-pointer)
         endif()

@@ -109,6 +109,12 @@ def licenses(stage):
             if re.match(r"(?i)(license|licence|copying)(\.(txt|md|rst))?$", f):
                 with open(os.path.join(folder, f), encoding="utf-8", errors="replace") as fh:
                     parts.append("=" * 78 + "\n%s (deps/%s/%s)\n" % (base, base, f) + "=" * 78 + "\n" + fh.read())
+    # libraries vendored in third_party/ and built into the game (PS2Recomp is the project's own base)
+    for base in ("JoltPhysics",):
+        path = os.path.join(stage, "third_party", base, "LICENSE")
+        if os.path.isfile(path):
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                parts.append("=" * 78 + "\n%s (third_party/%s/LICENSE)\n" % (base, base) + "=" * 78 + "\n" + fh.read())
     for z in (f for f in os.listdir(os.path.join(stage, "deps")) if f.endswith(".zip")):
         with zipfile.ZipFile(os.path.join(stage, "deps", z)) as zf:
             for n in zf.namelist():

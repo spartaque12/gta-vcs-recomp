@@ -770,3 +770,72 @@ The pack remains external, ignored by git and rejected by the release guard. See
 The user subsequently requested `textures/SLUS-21590/`: automatic discovery checks `textures/` beside the exe and,
 for the default source build, in the checkout root before the older bare serial folders. The pack-check tool uses
 this layout by default too. Tests were skipped at the user's request for this folder-discovery change.
+
+## 2026-10-31 - Jolt Physics, milestone 1: death ragdolls (the user's request: SA's "[SA] Jolt Physics" mod)
+
+The mod's binary can't be used (an SA ASI): it is re-implemented on the same engine in stages - death ragdolls, the
+world's collision, bullet / explosion impulses, gun and cash props, knockdowns, then active ragdolls, ballistics, gore
+and IK (game-internals.md 12f). Milestone 1 (game-internals.md 12h):
+- **Jolt Physics 5.6.0 vendored unmodified** in `third_party/JoltPhysics` (MIT; tag v5.6.0, UPSTREAM_COMMIT): its
+  `Jolt/` sources, `Build/CMakeLists.txt`, LICENSE and README only - no samples, tests or assets (5.6 MB). In the
+  repository rather than fetched like SDL3: nothing to download, a release's deps/ unchanged; tools/release.py puts its
+  licence into THIRD_PARTY_LICENSES.txt.
+- **A library of its own** (`src/physics`, target `vcs_physics`, the only code that includes Jolt): Jolt's target
+  carries PUBLIC defines and instruction-set options, which linked into ps2EntryRunner would reach the 240 MB of
+  generated code (a full rebuild, with flags it was never built with). vcs_physics links it PRIVATE and offers a plain
+  API (bone matrices in, bone matrices out). Jolt's own flag handling is off (OVERRIDE_CXX_FLAGS,
+  FLOATING_POINT_EXCEPTIONS_ENABLED, the static MSVC runtime, its warnings as errors, LTO, the object stream, debug
+  renderer, profiler, GPU compute); single precision (floats hold the 4 km map to a quarter of a millimetre).
+- **x86-64-v3, the game's own baseline**: the game is built with /arch:AVX2 / -march=x86-64-v3 (AVX2, FMA, BMI, LZCNT,
+  F16C), so Jolt at AVX2 adds no CPU requirement; AVX-512 off. FMA inside Jolt is fine (its maths isn't the PS2's).
+- **Round-to-nearest around every Jolt call**, the caller's MXCSR given back: the VU paths leave the game thread in
+  toward-zero at times.
+- **One thread**: JobSystemSingleThreaded, stepped on the game thread in the before-hook after CWorld::Process. A few
+  ragdolls cost well under a millisecond (8 falling: 0.5 ms), with no workers competing with the game's threads and the
+  same result every run. To be revisited when the world's collision makes steps heavier.
+- **The ragdoll is made at the ped's next draw, not inside SetDie**: the bones exist only from a draw (12c), so at
+  SetDie there is only last frame's pose (and none for a ped that died off screen). The draw after the death has fresh
+  bones, the tree and the hook point before the skinned draw. A ped that died unseen gets its ragdoll when it is first
+  drawn (in its death animation's pose, without its speed).
+- **11 parts on VC's bones** (hips on the spine bone 2 - the thighs' parent -, chest, head on the head joint, upper
+  arms, forearms, thighs, calves); every other bone rides on its parent as it was at death (root, pelvis, neck,
+  clavicles, hands, feet). Jolt's SkeletonMapper reorients chains of unmapped bones between two parts - here it turned
+  the chest bone toward the left arm through the neck and clavicle -, so its chains are dropped after Initialize and
+  those bones mapped like the others. The parts' bones keep their joints' places (no stretch shown).
+- **Joint limits by anatomy, not by the death pose**: hinges at the elbows and knees (-150 .. +3 degrees about the Z
+  both bones share; flexion measured negative), swing-twist cones elsewhere with their rest in the middle of the joint's
+  range (arms 40 degrees out from the sides, thighs 50 degrees forward), as Jolt's cones are symmetric.
+- **A ground of its own per ragdoll** until the world's collision: a slab 1 m under the ped's position (or under its
+  lowest bone) that only its own parts see (a group filter wrapping RagdollSettings' table), so corpses at different
+  heights never rest on each other's grounds; ragdolls still collide with each other.
+- **The ped follows its body** (x / y to the root bone) so culling and the world's lists go where it lies, and
+  ApplyMoveSpeed is not run for it; a move by the game itself (more than 2 m: a teleport, Vic's respawn) ends the
+  ragdoll instead of being undone. At most 24 simulated: the oldest then keeps its last pose until the game removes the
+  ped. Off by default (an enhancement).
+- **The killing blow moves the body** (the user's report: a point-blank shotgun victim only crumpled, cars drove
+  through bodies; brought forward from the bullet / explosion milestone). CPed::InflictDamage is hooked (before) for the
+  attacker, weapon and piece; the blow that killed pushes the ragdoll once it exists. A shot or melee hit: an impulse
+  from the attacker's side on the part hit, the trunk taking the rest, sized by weapon after SA's mod's DeathPush column
+  (a shotgun spread over the trunk, harder close up). It replaces the game's own knock-back (applied before
+  InflictDamage: a shotgun's 5.6 m/s), which on top threw bodies 7 m: the victim keeps only its own walking / running
+  speed (2 m/s at most). A vehicle: its speed at the blow to the legs, lifted, and in shares to the trunk and head (0.6
+  hips .. 0.15 head), not the game's throw - the body rotates back onto the bonnet. Game > Physics > Hit force (0 - 300
+  %) scales both.
+- **Vehicles as kinematic obstacles** near ragdolls (15 m), from their col model's bounding box, swept with them each
+  step (placed, not swept, after a jump of 5 m: a teleport would fling bodies): bodies are thrown, carried and rolled
+  over instead of passed through. One box is a wall - a body hit by its front face is bulldozed flat ahead of the car -,
+  so a car is two: its lower body to the bonnet's height and the cabin set back from the front, a body then folds onto
+  the bonnet as it should. The boxes are raised 0.25 m off the ground (a lying body goes under, as between wheels).
+  Nothing pushes back on the vehicle (the game moves it); the world's collision is still milestone 2's.
+- **Shots on bodies already down are cast against the ragdolls, not taken from the game's hits** (the user's request).
+  The game's collision for a dead ped is not where the ragdoll lies (shots at a body's hips hit the road under it), so
+  hooking its impact functions (DoBulletImpact, the pellet loop's dead-ped branch - both tried) missed most shots.
+  Instead every bullet's line (CWeapon::ProcessLineOfSight: pistols, SMGs, rifles, each pellet, drive-bys) is cast in
+  Jolt against the ragdoll parts and the part it meets is pushed at that point: what the player sees hit is what moves.
+  The bullet still flies on in the game (the road under the body gets the hole and the blood stays the game's). Jolt's
+  hook is installed before free aim's, which then wraps it, so the line is the camera's when the player aims.
+- **Blasts throw ragdolls part by part** (CWorld::TriggerExplosion, before): each part within the radius gets a velocity
+  away from the centre and up, up to 12 m/s for power 300 at the centre falling to 0 at the edge - nearer parts faster,
+  so bodies tumble. Peds the blast kills get the same when their ragdoll is made (any recent blast reaching them; the
+  damage comes as the blast's weapon, a grenade's 12 or 0x31), in place of the game's push (one rigid 11 m/s throw
+  given before the damage). Hit force scales it.

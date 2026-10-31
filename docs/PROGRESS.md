@@ -679,6 +679,23 @@ dropped on uploads (lazy render-target patching).
   mouse aims with the dot, the shots (FireInstantHitFromCar) along its line. Checked: both sides and first person, every
   round through the hook. Not yet: the arm following the aim (the game's animation points out of the window), bikes,
   pistols / shotguns / rifles in drive-bys.
+- **Death ragdolls - Jolt Physics, milestone 1** (2026-10-31, the user's request: SA's "[SA] Jolt Physics" mod
+  re-implemented in stages; Game > Physics > Ragdolls, off by default; game-internals.md 12f / 12h, DECISIONS.md): Jolt
+  5.6.0 vendored (third_party/JoltPhysics) in its own library (src/physics); a ped that dies goes limp - an 11-part
+  ragdoll from its pose and speed, written into its bones at every draw (src/game/vcs_jolt.cpp) - and lands on a ground
+  of its own at its feet. Checked by tools/ragdoll_check.py (hidden): a ped killed falls, lies 13 cm over the road and
+  sleeps within ~4 s, its drawn bones the ragdoll's; Vic's death gets one and his respawn drops it; the setting
+  switched at run time (off: the game's death; on; off again: removed); street peds of five more models. Cost: 8 falling
+  at once 0.5 ms a step (0.7 max), asleep ~0.005 ms. After the user's videos (2026-10-31): the killing blow pushes the
+  body (shots and melee by weapon, a shotgun hardest close up; a vehicle folds it onto its bonnet; Game > Physics > Hit
+  force) and vehicles near ragdolls are moving boxes in the physics (bodies thrown, carried, rolled over instead of
+  driven through) - checked: a Shotgun kill at 4 m throws the body 2.3 m back, a Sentinel at 12 m/s carries it on the
+  bonnet and drops it ahead. Then (the user's request) shots on bodies already down move them - every bullet's line cast
+  against the ragdolls (the game's collision for a dead ped is not where the body lies) - and blasts throw bodies in
+  reach part by part, the peds they kill too: checked, 2 of 3 Colt45 shots at a lying body on it, a Shotgun blast
+  shoves it 0.24 m, a grenade-sized explosion throws a body 2 m away 7.3 m. Not yet (later milestones): the world's
+  collision (walls, stairs - milestone 2: the sectors' lists), gun and cash props, knockdowns, active ragdolls,
+  ballistics, gore, IK; peds dying in vehicles keep the game's death. Linux: not built with it yet.
 
 ## Milestone 9 - Linux (started 2026-10-30)
 
@@ -902,6 +919,9 @@ Python scripts still usable on their own. docs/LAUNCHER.md has the whole of it; 
 | `VCS_TRACE_PED_REMOVE=1` | log every ped flagged for removal (FlagToDestroy, FUN_00210780) and deleted (FUN_00198408): handle, position, model, created-by, flags, last script, callers |
 | `VCS_MODS_DIR=<dir>` | the mods folder (default `mods` next to vcs.exe): `<dir>/stream/<id>.*` replace streamed files (models, texture dictionaries; game/vcs_stream_override.h, tools/weapon_convert.py) |
 | `VCS_STREAM_OVERRIDE=0` | no streamed file replaced (the reference) |
+| `VCS_JOLT=0\|1` | death ragdolls (Jolt Physics) off / on for one run, over Game > Physics > Ragdolls (game/vcs_jolt.h) |
+| `VCS_JOLT_HOOKS=0` | no ragdoll hooks at all (the reference) |
+| `python tools/ragdoll_check.py [OUT]` | death ragdolls: a ped and Vic killed, the pelvis followed as it falls and settles, a shotgun kill thrown back, a car's onto the bonnet, the respawn; shots on a lying body, a blast |
 | `display.scale=<1..8>` (old `scale=` still read) | internal render resolution, as `PS2X_HW_SCALE` (the environment wins) |
 | `python tools/vudis.py code.bin --start 0x30 --to-ebit` | VU microcode disassembler |
 | `python tools/sendkey.py Return`, `python tools/screenshot.py f.png` | key press / screenshot (control channel if open, else the window) |
