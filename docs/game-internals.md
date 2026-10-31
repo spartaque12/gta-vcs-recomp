@@ -2829,6 +2829,15 @@ place in the view's frame) and screenshots.
   crosshair (hand x . view 0.99 - 1.00), only forearms and hands showing; free aim's shots through the dot at a
   37-health ped 6 m out: Colt45 37 -> 4.5, Uzi -> 11, M4 and Shotgun killed. Melee weapons keep the game's arms.
 
+- **Manual reload** (2026-11-01, `reload.cpp`): CWeapon::Reload (FUN_002CDFB0) fills the clip from **weapon info +0x14,
+  the clip size** (clip = min(total, size); with the slot base at ped +0x578: +0 type, +4 state, +8 clip, +0xC total,
+  +0x10 the reload's end time). CWeapon::Fire's empty-clip branch (0x2C1998) only sets state 2 and the end time (CTimer
+  ms 0x4CD104 + info +0x10; a quarter of it on another path for the player); the anim, sound and refill follow from the
+  state. The reload key (R, Back + Square) does the same when the clip is short of its size and the total is larger,
+  the slot is ready (state 0) and the player idle / attacking / aiming; guns with a clip of 1 (the shotguns 21 - 23, the
+  sniper rifles, the rocket launcher) are left alone - the game reloads them every shot. Checked first person on and off:
+  M4 28 / 88 -> 30 / 88 and Uzi 28 -> 30 after the reload time, Colt45 16 -> 17, a full clip refused; third person plays
+  the reload anim; the viewmodel tips the gun over, low, while the slot reloads.
 - **Scopes** (2026-11-01, the user's "fix first person for rocket and sniper, so mouse can work"): the game's own
   first-person aims on foot - CCam mode 7 (sniper rifle, laser scope), 8 (rocket launcher), 46 (camera), 47 (binoculars)
   - aim from the stick only; the mouse, sent to them as a right stick, did nothing (first person on or off). The camera
