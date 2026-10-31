@@ -360,8 +360,9 @@ namespace vcs::freeaim
             g_posed = false;
         }
 
-        // the crosshair: aiming, and always in first person
-        g_crosshair = g_ray.valid && (aiming || view == View::FirstPerson);
+        // the crosshair: only while he aims (R1 / the right mouse button), first person too - hip fire there still goes
+        // along the view, without the dot
+        g_crosshair = g_ray.valid && aiming;
         g_crosshairStamp = nowNs();
     }
 

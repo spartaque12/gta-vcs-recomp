@@ -103,8 +103,8 @@ Andreas. With a gun, right click / E (R1) no longer locks on: the camera eases i
 field of view, 60 degrees by default), a small dot marks the middle of the picture, the mouse (and the right stick)
 aim, the player raises his gun and points it there, and left click / Ctrl (Circle) fires along the line through the
 dot. Standing still he faces the aim; walking or running he moves as usual and keeps the gun pointed at the aim as far
-as he can turn. In first person the view stays at his eyes: the dot shows whenever he holds a gun, and shots go where
-you look, aimed or not. Shotgun pellets spread about the dot. Fists and melee weapons still lock on; the sniper rifles
+as he can turn. In first person the view stays at his eyes: the dot shows while you aim (right click), and shots go
+where you look, aimed or not. Shotgun pellets spread about the dot. Fists and melee weapons still lock on; the sniper rifles
 and the rocket launcher keep their own sights; thrown weapons and the flamethrower go straight ahead of the player.
 In a vehicle with an SMG, hold 1 / Z (L2) or 3 / X (R2) to lean out left or right as in the game: with free aim the camera
 goes over the vehicle to that side (in first person, out of that window), the mouse aims with the dot, and Circle /

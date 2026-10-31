@@ -722,7 +722,7 @@ settings menu (`src/game/vcs_freeaim.cpp`, game-internals.md 12d).
 - **The camera over the right shoulder is first person's hook's** (one owner of the CCam, one yaw / pitch, the mouse
   routed the same way); the game's follow camera keeps running underneath, so the aim eases in from it and back out,
   and its distance (it keeps its own, ~4.2 m) caps the aim camera's for walls behind the player. In first person the
-  aim keeps the eyes' view, the dot always shows with a gun and shots go where the player looks.
+  aim keeps the eyes' view, the dot shows while aiming (R1) and shots go where the player looks, aimed or not.
 - **The crosshair centred in the window** (the picture is centred, presenter::fitRect), DotCrosshair's four discs
   without antialiasing (its soft edges are the extra discs), in ImGui's background list (under the menus), hidden
   when no camera update has shown it for 0.15 s (pause, loading).
