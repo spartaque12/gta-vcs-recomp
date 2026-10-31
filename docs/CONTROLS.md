@@ -82,6 +82,34 @@ trainer: Up / Down or numpad 8 / 2 or the D-pad select, Left / Right or numpad 4
 5 / A applies, Backspace / numpad 0 / Escape / B goes back (and closes it on the first page). The game gets no input
 while a menu is open.
 
+## First person
+
+**B** (Keyboard > Menus > First person; on a gamepad Back + R3) switches first person on foot on and off (Game >
+First person, with its field of view; saved in vcs.ini; `VCS_FIRSTPERSON=0|1` for one run). The camera is at the
+player's eyes and his head is hidden; the mouse (and the right stick, I / J / K / L) look around, up to 60 degrees up
+and 80 down, and W / A / S / D walk relative to the view. Standing still and attacking he faces the view, so shots go
+where you look and right click (R1) locks on to what is in view; locked on, the view turns with him to the target. In
+vehicles (Game > First person in vehicles, on by default) the view is from the seat: the mouse looks around and eases
+back ahead while driving, L2 / R2 still look aside, and the vehicle's windows are not drawn. In cutscenes, under a
+script camera, in the trainer's free camera and in the sniper / rocket / camera views the game's own camera takes over.
+Game > Field of view sets the game's own cameras on foot and in vehicles (70 as on the PS2). First person's own rows set its field of
+view, its near clip (10 cm by default) and the eye position (right / ahead / up in cm from the head, on foot along the
+player, in a vehicle along it); in a vehicle the camera does not shake, and the vehicle's jolts on bumps are eased out.
+
+## Free aim
+
+Game > **Free aim** (off by default; saved in vcs.ini; `VCS_FREEAIM=0|1` for one run) aims guns by hand as in San
+Andreas. With a gun, right click / E (R1) no longer locks on: the camera eases in over the right shoulder (Game > Aim
+field of view, 60 degrees by default), a small dot marks the middle of the picture, the mouse (and the right stick)
+aim, the player raises his gun and points it there, and left click / Ctrl (Circle) fires along the line through the
+dot. Standing still he faces the aim; walking or running he moves as usual and keeps the gun pointed at the aim as far
+as he can turn. In first person the view stays at his eyes: the dot shows whenever he holds a gun, and shots go where
+you look, aimed or not. Shotgun pellets spread about the dot. Fists and melee weapons still lock on; the sniper rifles
+and the rocket launcher keep their own sights; thrown weapons and the flamethrower go straight ahead of the player.
+In a vehicle with an SMG, hold 1 / Z (L2) or 3 / X (R2) to lean out left or right as in the game: with free aim the camera
+goes over the vehicle to that side (in first person, out of that window), the mouse aims with the dot, and Circle /
+left click fires along it.
+
 ## Window
 
 Alt+Enter switches between full screen and the window (Display > Window mode; saved in vcs.ini). Enter with Alt

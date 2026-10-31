@@ -21,7 +21,9 @@
 #include "disc/iso_image.h"
 #include "disc/vcs_disc_id.h"
 #include "game/vcs_display.h"
+#include "game/vcs_firstperson.h"
 #include "game/vcs_framerate.h"
+#include "game/vcs_freeaim.h"
 #include "game/vcs_movie.h"
 #include "game/vcs_hud.h"
 #include "game/vcs_input.h"
@@ -562,6 +564,9 @@ namespace
         s.defaultValue = 0;
         settings::add(s);
 
+        vcs::firstperson::registerSettings(); // first person on foot (game/vcs_firstperson.h)
+        vcs::freeaim::registerSettings();     // SA's free aim (game/vcs_freeaim.h)
+
         s = {};
         s.key = "display.msaa";
         s.page = "Graphics";
@@ -800,6 +805,7 @@ int main(int argc, char *argv[])
                                     [](PS2Runtime &, void *) {
                                         altEnter();
                                         followWindowAspect();
+                                        vcs::freeaim::drawCrosshair(); // under the menus (the background list)
                                         ui::drawSettingsMenu();
                                         ui::drawTrainerMenu();
                                         ps2control::setGameInputBlocked(ui::settingsMenuBlocksInput() || ui::trainerMenuBlocksInput());

@@ -20,6 +20,9 @@
 #include "game/vcs_inflate.h"
 #include "game/vcs_sound.h"
 #include "game/vcs_stream.h"
+#include "game/vcs_firstperson.h"
+#include "game/vcs_carglass.h"
+#include "game/vcs_freeaim.h"
 #include "game/vcs_freecam.h"
 #include "game/vcs_hud.h"
 #include "game/vcs_rsl_native.h"
@@ -894,6 +897,9 @@ namespace
         vcs::installDisplayHooks(runtime); // widescreen (settings menu)
         vcs::installHudHooks(runtime);     // 2D at the RenderWare level
         vcs::freecam::install(runtime);    // the trainer's free camera (game/vcs_freecam.h)
+        vcs::firstperson::install(runtime); // first person on foot, chained after the free camera (game/vcs_firstperson.h)
+        vcs::freeaim::install(runtime);     // SA's free aim: no lock-on, shots along the camera (game/vcs_freeaim.h)
+        vcs::carglass::install(runtime);    // in-car first person: the vehicle's windows not drawn (game/vcs_carglass.h)
         vcs::installFrameRateHooks(runtime); // 30 / 60 fps (game/vcs_framerate.h)
         vcs::installScriptTimingHooks(runtime); // per-frame mission meters on the time step (game/vcs_script_timing.h)
         vcs::installPhysicsTimingHooks(runtime); // per-frame vehicle pushes on the time step (game/vcs_physics_timing.h)

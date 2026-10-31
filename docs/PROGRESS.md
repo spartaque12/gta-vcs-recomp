@@ -638,6 +638,32 @@ dropped on uploads (lazy render-target patching).
   Same day: a mission launched under it hung on "Loading..." (the first version replaced the camera's update, which
   drives a cutscene's end); fixed, and a launch turns it off. `--freecam` 8 checks (Soldier's cutscene played out
   under it), 0 failed; the full check 41, 0 failed.
+- **First person on foot** (2026-10-31, the user's port of UltimateFP's on-foot camera; key B / Back + R3, Game >
+  First person, docs/CONTROLS.md; game-internals.md 12c, DECISIONS.md): the camera at the eyes from the head joint, the
+  head's bones collapsed for the player's draw, mouse / right stick look (60 up, 80 down), near plane 0.1, FOV 90.
+  Checked in hidden runs on a copy of the user's card: level / down / up views (no head, his shoulders, arm and pistol
+  looking down), W walked 6.2 m along the view (0.000 rad off), attacking turned him to the view, R1 turned him to the
+  view and the lock-on view followed his body, B off (third person, the game's near plane back) and on, a car (mode 18)
+  handed the camera back and getting out resumed it, F6's free camera took over and gave it back, the settings rows
+  and the key in the menu. Not checked: a lock-on on a real target (the spawned test ped was not drawn), gamepad.
+- **Free aim** (2026-10-31, the user's request: SA's manual aim with their DotCrosshair; Game > Free aim,
+  docs/CONTROLS.md; game-internals.md 12d, DECISIONS.md): no lock-on with guns, the camera over the right shoulder
+  (FOV 60, eased in / out), the game's own AimGun pointing the gun along the aim (arm IK, up / down), shots along the
+  camera's line, the dot crosshair; in first person the eyes' view with the dot. Checked in hidden runs on a copy of
+  the user's card: R1 with a ped ahead did not lock on, the pistol came up and followed the view, a ped 8 m out with the
+  dot on its chest lost 32.5 health to the first shot and died to the second, the first-person view showed the dot on
+  the ped and the pistol along the view; a Shotgun shot sent its 3 pellets along the line and killed a ped. Not yet:
+  thrown weapons / flamethrower (the game's aim, level along the body), gamepad.
+- **First person in vehicles, glass, field of view** (2026-10-31, the user's requests; game-internals.md 12e,
+  DECISIONS.md): the eyes from the head joint in the vehicle's space, mouse look with recentring while driving, L2 / R2
+  look-aside, the vehicle's windows not drawn (src/game/vcs_carglass.cpp); Game > Field of view for the game's cameras
+  on foot and in vehicles. Checked in hidden runs (Sentinel): eye placement, look and recentring, glass hidden and back
+  on foot, FOV 90 / 85 applied. Not checked: bikes, boats, aircraft in a run; gamepad.
+- **Manual drive-by** (2026-10-31, the user's port of SA's Manual Driveby Remake onto free aim; game-internals.md 12d):
+  L2 / R2 with an SMG in a vehicle - the camera over the vehicle to that side (or the in-car first-person view), the
+  mouse aims with the dot, the shots (FireInstantHitFromCar) along its line. Checked: both sides and first person, every
+  round through the hook. Not yet: the arm following the aim (the game's animation points out of the window), bikes,
+  pistols / shotguns / rifles in drive-bys.
 
 ## Milestone 9 - Linux (started 2026-10-30)
 

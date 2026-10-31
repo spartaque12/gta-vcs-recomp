@@ -672,3 +672,72 @@ every file came out up to 13.5 h in the future, newer than any build.ninja CMake
   reports them (it changes nothing). A build tree that already looped recovers without being deleted (checked).
 - Ninja's "still dirty" still gets its own failure (`file_dates`) for what the repair can't reach - a clock that is
   wrong, a read-only file.
+
+## 2026-10-31 - First person on foot, a port of UltimateFP's (the user's request)
+
+The user asked for UltimateFP's on-foot first person (a closed GTA SA plugin) in the port. It cannot be loaded (a
+32-bit SA plugin patching gta_sa.exe), so its on-foot behaviour is rebuilt on the port's own hooks
+(`src/game/vcs_firstperson.cpp`, game-internals.md 12c).
+- **The camera written after the game's update**, as the free camera (2026-10-30): the follow camera keeps running
+  (missions, transitions and the third-person view after first person are the game's), and first person writes the
+  CCam in place of the height routines. It chains after the free camera's hook; the free camera wins while it flies.
+- **Only on foot, in the follow and lock-on cameras.** Every other camera (vehicles, the sniper / rocket / camera
+  views, cutscenes, script cameras) is the game's own: they are made for what they show, and UltimateFP's in-vehicle
+  half is a later step. Locked on, the view follows the player's body (the game turns him to the target, the gun
+  points there) with the lock-on camera's tilt - not the lock-on camera's direction, which is from behind his shoulder.
+- **The body faces the view standing still** (as in a first-person game), and when attacking or pressing R1: the game
+  aims shots and searches R1 targets in front of the body, and R1's search runs in the frame R1 is read, before the
+  camera - a body turned only once the view was 100 degrees off (the first version) locked on to nothing in view.
+  Moving, the game turns him where he goes, relative to the view.
+- **The head hidden by collapsing its bones for the draw**, not by moving the camera out of it: the bones are built
+  while the ped is drawn, so a before-hook on the next call in the ped's render (FUN_0020c310 at 0x200738) changes
+  them after the game's last write and before the skinning reads them. Hooks only work before the original
+  (AGENTS.md rule 2): the bone update itself is left alone.
+- **The eyes from the head joint's position, the view from the mouse** - not from the head bone's rotation (head
+  turns and idle animations would swing the view), and the head joint of the previous draw carried with the ped's
+  current position (no lag while running).
+- **UltimateFP's numbers where they carry over**: 60 degrees up / 80 down, a short near plane (0.1; the game's 0.3 cut
+  into the arms), the field of view 90 by default (its 92 in SA). The neck / lean / ADS / per-weapon offsets are SA
+  model data and are not taken.
+- Off by default (authentic by default); key B (free on the default keyboard: V is R3), Back + R3 on a gamepad.
+
+## 2026-10-31 - Free aim, SA's manual aim (the user's request)
+
+The user asked for San Andreas' free aim (no auto-aim, a crosshair, shots where it points) with their SA crosshair
+(DotCrosshair: radius 1.4, outline 1.25 px at 1080 lines, white, black outline at alpha 192), switchable in the
+settings menu (`src/game/vcs_freeaim.cpp`, game-internals.md 12d).
+- **Lock-on is refused, not undone**: CPlayerPed::FindWeaponLockOnTarget answers "nothing found" for the player with a
+  gun, so the game never enters its aim state or lock-on camera. Fists and melee weapons keep it (as SA's), the sniper
+  rifles and the rocket launcher keep their own first-person sights.
+- **The aim pose is the game's own**: VCS has no aim stance without a target, but CPed::AimGun points the gun in a
+  direction (the look direction and the player's pitch) when bIsAimingGun is set and there is no seek target - what
+  SetAimFlag(heading) sets when the player fires with no target. Its writes are made from the camera update every
+  frame of the aim (hooks may not call guest functions mid-way), ClearAimFlag's after; the IK then raises the pistol and
+  tilts it up and down. No strafing: the game has no strafe animations (locked on it runs too), so moving while aiming
+  he runs where the stick points with the gun turned to the aim.
+- **The shots along the camera's line, SA's way** (Find3rdPersonCamTargetVector): FireInstantHit's ProcessLineOfSight
+  gets, in a before-hook keyed on its return addresses, the point of the camera's line nearest the muzzle and the
+  weapon's range along it - written into FireInstantHit's own start / end, so tracers and impacts agree. A shot from
+  the muzzle toward the crosshair's far point would miss near targets by the camera's offset.
+- **The camera over the right shoulder is first person's hook's** (one owner of the CCam, one yaw / pitch, the mouse
+  routed the same way); the game's follow camera keeps running underneath, so the aim eases in from it and back out,
+  and its distance (it keeps its own, ~4.2 m) caps the aim camera's for walls behind the player. In first person the
+  aim keeps the eyes' view, the dot always shows with a gun and shots go where the player looks.
+- **The crosshair centred in the window** (the picture is centred, presenter::fitRect), DotCrosshair's four discs
+  without antialiasing (its soft edges are the extra discs), in ImGui's background list (under the menus), hidden
+  when no camera update has shown it for 0.15 s (pause, loading).
+- Off by default. Shotgun pellets follow the line too (their own line of sight, each pellet's spread kept about it);
+  thrown weapons and the flamethrower keep the game's aim for now (level, along the body, which faces the aim).
+
+## 2026-10-31 - First person in vehicles, vehicle glass, the field of view (the user's requests)
+
+- **In-car first person is ours, not the game's mode 16**: VCS has an in-car view (Select), but it sits at the seat
+  with a fixed look; ours keeps first person's eyes (the head joint in the vehicle's space, so passengers and bikes come
+  out right), the mouse look with SA-like recentring while driving, the game's L2 / R2 look-aside, and the head hidden.
+  It takes modes 18, 22 and 16 and leaves the game's camera running underneath (no jump when it ends).
+- **The glass hidden per vehicle at the mesh colour** (FUN_0039e7f0): the glass materials are shared by every vehicle
+  of the model, so the player's vehicle's glass meshes get alpha 0 on their way to the VU (the alpha test drops them);
+  nothing in game memory is written. By material (alpha < 255) and the game's own "windscreen" rule, so it covers
+  every vehicle type (other alpha materials on a vehicle go too).
+- **The field of view where the frame hands it to the renderer** (CDraw::SetFOV from CCamera::Process), not in the
+  CCam: the car camera eases its FOV from last frame's (speed widening), which a per-frame scale would compound.

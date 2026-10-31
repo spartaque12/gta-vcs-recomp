@@ -5,6 +5,7 @@
 // looks at the game (game-internals.md 12b): whether the player drives (the Driving keys) and which camera is active
 // (the mouse turns the on-foot camera itself).
 #include "game/vcs_input.h"
+#include "game/vcs_firstperson.h"
 
 #include "game/vcs_freecam.h"
 #include "platform/platform.h"
@@ -370,6 +371,9 @@ namespace vcs::input
             const auto now = std::chrono::steady_clock::now();
             const float dt = g_mouse.last.time_since_epoch().count() ? std::chrono::duration<float>(now - g_mouse.last).count() : 0.0f;
             const uint32_t frame = g_rdram ? rd32(kFrameCounter) : 0;
+            // first person on foot (game/vcs_firstperson.h): the mouse and the right stick turn its view, the game's
+            // camera gets no stick
+            const bool firstPerson = !freeCamera && firstperson::looking();
             if (freeCamera)
                 g_mouse = {};
             else if (frame != g_mouse.frame || dt >= 0.25f || dt == 0.0f)
@@ -391,7 +395,14 @@ namespace vcs::input
                 // back (y > 0)
                 const float up = -dy * (m.mouseInvertY ? -1.0f : 1.0f);
                 g_mouse.x = g_mouse.y = 0.0f;
-                if (on && game.footCamera)
+                if (firstPerson)
+                {
+                    // the right stick at full tilt turns 2.5 rad/s (the game's top speed); a stick pulled back looks up
+                    const float t = std::clamp(dt, 0.0f, 0.1f) * 2.5f, y = rd32(kInvertLook) ? -ry : ry;
+                    firstperson::look((on ? -dx * m.mouseLook : 0.0f) - rx * t, (on ? up * m.mouseLook : 0.0f) + y * t);
+                    g_mouse.pitch = 0.0f;
+                }
+                else if (on && game.footCamera)
                 {
                     // heading: right turns clockwise (the angle falls), kept in 0..2 pi as the game keeps it. The camera
                     // eases its heading back toward where it stands (its source points, +0x220 / +0x230, placed around
@@ -436,6 +447,8 @@ namespace vcs::input
             }
             rx += g_mouse.x;
             ry += g_mouse.y;
+            if (firstPerson)
+                rx = ry = 0.0f;
 
             const uint16_t word = static_cast<uint16_t>(~buttons);
             data[2] = static_cast<uint8_t>(word & 0xFF);
@@ -630,6 +643,18 @@ namespace vcs::input
         s.defaultValue = KEY_F6;
         settings::add(s);
 
+        s = {};
+        s.key = "controls.firstperson_key";
+        s.page = kKeys;
+        s.section = "Menus";
+        s.label = "First person";
+        s.help = "Switches first person on foot on and off (Game page). On a gamepad: press Back + R3 together.";
+        s.type = Type::Key;
+        s.group = "keys";
+        s.optional = true;
+        s.defaultValue = KEY_B;
+        settings::add(s);
+
         // ---- Gamepad ---------------------------------------------------------------------------------------------
         for (const Control &c : kControls)
         {
@@ -781,6 +806,19 @@ namespace vcs::input
     }
 
     void stopVibration() { gamepadRumble(0.0f, 0.0f); }
+
+    PadState lastPad()
+    {
+        const uint64_t r = g_lastReport.load(std::memory_order_relaxed);
+        auto axis = [](uint64_t b) { return (static_cast<float>(b & 0xFF) - 128.0f) / 127.0f; };
+        PadState p;
+        p.buttons = static_cast<uint16_t>(~r & 0xFFFF);
+        p.rx = axis(r >> 16);
+        p.ry = axis(r >> 24);
+        p.lx = axis(r >> 32);
+        p.ly = axis(r >> 40);
+        return p;
+    }
 
     FreeCamInput takeFreeCameraInput()
     {

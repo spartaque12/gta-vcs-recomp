@@ -1817,6 +1817,222 @@ mission's runtime IP is 0x3CAE3 + (IP - its start)) and reproduced with the rig.
 - Teleported to (575, 175) the camera ends up at its lowest pitch (-1.483, straight down) - the game's own doing (the
   same with `VCS_INPUT_MAP=0`).
 
+### 12c. Bones, near plane and heading - first person on foot (2026-10-31)
+
+Found for `src/game/vcs_firstperson.cpp` (the user's port of UltimateFP's on-foot camera) with the rig on a copy of
+the user's card (Fort Baxter): `findvec` near the player's head height, write watches on the hits, the generated code.
+- **Skeleton**: a ped's anim tree (`RslTAnimTree`, as in aap's RSL notes) has **+0x4 the node count (25 for peds)**
+  and **+0x28 the bone matrices**: world matrices, 0x40 bytes each (rows: X, Y, Z, position; w lanes 0). The ped
+  bones are VC's: 0 root, 1 pelvis (both at the ped's position), 2-3 spine, **4 neck** (+0.52 over the ped's
+  position), **5 head** (+0.654: the head joint, the top of the neck), **6 the head's end** (same place, its own
+  axes), 7-11 left arm (clavicle .. fingers), 12-16 right arm, 17-20 left leg (thigh .. toe), 21-24 right leg. The
+  head bone's X row points up the head and its Y row forward (ped forward (-0.35, 0.94): Y (-0.40, 0.91, -0.12)).
+  The ped's clump is at **ped +0x50**; `FUN_0019b478(clump)` returns its tree (FUN_002c01f8 walks the clump with the
+  callback 0x19B448).
+- **The bones are built while the ped is drawn**, not in the game update: a write watch on the head matrix gave
+  `FUN_002c0a40` (pc 0x2C0BA8..0x2C0BD0) <- **FUN_0024e8d0(tree)** (the tree's matrices) <- **FUN_003c3250(ped)**
+  (`if (FUN_0019b320(clump)) FUN_0024e8d0(FUN_0019b478(clump))`), called at `0x200724` from the ped's render, itself
+  under FUN_0021e950 (render) -> FUN_0021eef0 -> FUN_00108dc8 -> FUN_00109368 -> FUN_0035c4b8 (an entity callback
+  through a function pointer). Right after it the ped's render calls **FUN_0020c310(ped)** (a getter: `ped[0x550]
+  == 0`) at `0x200738` (return address 0x200740), then goes on to draw the skinned mesh - the place to change the
+  bones for the draw: first person collapses bones 5 and 6 (rows X, Y, Z zeroed, the position kept) there, and the
+  head is drawn as a point. The tree is noted in a before-hook on FUN_0024e8d0 when its return address is 0x3C3280
+  and the caller's `s0` (FUN_003c3250 keeps the ped there) is the player.
+- **Near plane**: the RW camera is at **TheCamera + 0x7F4**; its **+0x78 is the near plane** (0.3; the far plane
+  2000 at +0x7C; the view window's tan / aspect before them, e.g. 0x742AC0 = (0.750, 1.429, 0.3, 2000) in the run
+  above). `FUN_0018f448(cam)` reads it (`lwc1 f0, 0x78(a0)`), `FUN_0018f3b0(cam, f12)` sets it (stores +0x78, then
+  `FUN_0018f440` / `FUN_001b4688` on the camera's frame). CCamera::Process (FUN_00378dd8) copies it every frame into
+  **0x4CD130** (and the far plane into 0x4CD12C) at 0x37B038..0x37B058 for IsSphereVisible - after the CCam's update
+  and the height routines, so a near plane written in place of those (as the free camera writes the CCam) is the one
+  the frame uses. A branch before it (0x37AF94..0x37B014: from the camera's height over 55 m) can lower the near plane
+  to 0.1125 x something through FUN_0018f3b0.
+- **Heading**: **ped +0x8E0 = m_fRotationCur, +0x8E4 = m_fRotationDest** (radians, = atan2(-forward.x,
+  forward.y): 0 faces +y). Writing Dest turns the ped (the game eases Cur to it; written alone Cur is pulled back).
+  Found by searching the ped for the heading worked out from its matrix and writing each hit. **Ped +0x8C4 (state)
+  is 0x10 while attacking** (Circle held with a pistol; VC's PED_ATTACK; 0x11 PED_FIGHT), 1 idle.
+- **The lock-on camera (mode 11) is not the view from the player's eyes**: it stands behind his shoulder (1.5 m back,
+  0.7 m up in the probe) looking at a point beside him (+0x1A0 0.55 m to his right), so its front was 0.9 rad off his
+  body; `TheCamera + 0x890` (front from the target point) was 0. R1 picks its target in front of the **body**, in the
+  frame R1 is read - the camera switches to mode 11 in that same frame.
+- **First person** (`VCS_FIRSTPERSON=1`, the Game page, key B): in place of FUN_002A2ED0 for the active CCam, in mode 4
+  (follow ped) and 11 (locked on) with `TheCamera + 0x888` set, on foot, the free camera not flying - the camera at
+  the head joint + 0.09 m up + 0.075 m forward (from the last draw, carried with the ped's position), the view from the
+  mouse / right stick (mode 11: the body's heading - the game turns him to the target - and the lock-on camera's tilt),
+  FOV 90, near plane 0.1 (given back after). The follow camera's heading (+0x7C, = the view's + pi) and stand points
+  turn with the view, so W walks where the player looks (checked: 6.2 m walked, 0.000 rad off the view). Standing
+  still, attacking (state 0x10 / 0x11) or with Circle / R1 held the body is turned to the view (+0x8E0 / +0x8E4), so
+  shots and R1's target search go where the player looks.
+
+### 12d. Aiming: lock-on, the gun's pose, the shot's line - free aim (2026-10-31)
+
+Found for `src/game/vcs_freeaim.cpp` (the user's SA-style free aim) with the rig on a copy of the user's card (a write
+watch on the player's +0x820 while R1 locked on to a spawned ped, pokes of the aim fields) and the generated code.
+- **R1's lock-on**: CPlayerPed::ProcessControl (FUN_00230640) calls ProcessPlayerWeapon (FUN_00235d30) at 0x23158C;
+  on R1 it calls **CPlayerPed::FindWeaponLockOnTarget (FUN_002d68c8)** at 0x236628 / 0x2366D4. Weapon types 19..35
+  (`(1 << type) & 0xFFFF80000`) search with FUN_002d6a70 (angle pi, the weapon's range), the others (fists, melee)
+  first with FUN_002d6c80 (pi / 2, 5 m). A target found goes through the vtable's +0x7C (FUN_0023ad28 -> FUN_001fa3d8:
+  **ped +0x820 = m_pPointGunAt**, with CleanUpOldReference / RegisterReference; FUN_0023ad28 also sets +0xD14) and
+  0x486F78 = 1; it returns found (v0). Returning 0 without those is "nothing found": with a gun R1 then does nothing -
+  **VCS has no aim stance without a target** (state stays 1, camera mode 4, the gun stays down; checked).
+- Locked on: ped state **0x16** (VC's PED_AIM_GUN), camera mode 11, TheCamera + 0x7F0 (weapon mode) 11. Moving while
+  locked the player runs where the stick points (no strafing), the gun turned to the target as far as it goes. The seek
+  target (+0x450) stays set after the lock is let go.
+- **The gun's pose**: CPed::ProcessControl (FUN_001f4bf0) clears m_pedIK.m_flags (**ped +0x330 + 0x2C = +0x35C**) bits
+  0xF8 every frame and, with **bIsAimingGun (ped +0x1C8, 64-bit flags, bit 0x100)** and no blocking animation, calls
+  **CPed::AimGun (FUN_001f1438)** at 0x1F8990; with bIsRestoringGun (0x200) RestoreGunPosition (FUN_001f1610).
+  AimGun: a seek target (FUN_00218990: **ped +0x450**, or the ped's task when **0x48A638** is non-zero; 0 in play) ->
+  PointGunAtPosition (FUN_002ee5c8; a ped target's PED_MID through GetComponentPosition FUN_002edcd8); none ->
+  **PointGunInDirection (FUN_002ee6f0)**(m_fLookDirection **+0x6B8**, the player's pitch **+0xCAC**; other peds 0),
+  which points with the arm (FUN_002eea28) when IK flag **4 (AIMS_WITH_ARM)** is set. Its result is +0x1C8 bit 0x400
+  (bCanPointGunAtTarget); IK flag 1 = pointed (FireInstantHit reads it). CPed::IsPlayer = FUN_0020c310.
+- **CPed::SetAimFlag(heading) = FUN_001f1298**: +0x6C8 (look timer) = 0, +0x6B4 (look target) = 0 without giving up
+  its reference, flags |= 0x100 and &= ~0x200, +0x6B8 = the heading, SetSeekTarget(0) (FUN_00218478, +0x450), IK flag 4
+  from the weapon info's byte 0 bit 7. The attack code (FUN_001d0970) calls it when firing without a target.
+  **CPed::ClearAimFlag = FUN_001f13d0**: 0x100 -> 0x200, IK flag 4 off, look timer 0, the player's +0xCAC = 0.
+  **+0xCAC is down-positive** (VC's m_fFPSMoveHeading; checked: -0.62 raised the pistol, +0.62 lowered it). The weapon
+  info: **FUN_00407120(type) = *(*(0x712770) + 4) + type x 0x70**, +0x8 the range.
+- **References**: CEntity::ResolveReferences (FUN_0036d548) clears a registered pointer only while it still points at
+  the entity, so a reference field zeroed without CleanUpOldReference (FUN_0036d4f8) is harmless (SetAimFlag does it
+  with +0x6B4). RegisterReference = FUN_0036d480 (buildings skipped, no duplicates).
+- **The shot's line**: CWeapon::FireInstantHit (FUN_002c3e48; a0 the CWeapon (+4 its type), a1 the shooter, a2 the
+  fire source, a3 the shooter's vehicle for a drive-by with t0 the end point) ends in **CWeapon::ProcessLineOfSight
+  (FUN_002d0870)**(a0 start, a1 end, a2 colpoint, a3 hit entity**, t0 the type, t1 the shooter, ...): start and end
+  are FireInstantHit's own stack (sp+0x40 the source, sp+0x30 the end), and the tracer and impacts after it use them.
+  Calls: 0x2C41A4 (drive-by: to *t0, the vehicle and its passengers ignored), 0x2C479C (at m_pPointGunAt: its PED_MID
+  with inaccuracy), 0x2C490C (a target but the gun not pointed: (range, 0, 0) through the right hand's frame),
+  0x2C4C98 (models 0x113, 0x107, 0xAD: along their forward, with spray), **0x2C4F10 (no target: the source + the
+  heading x range, level)**, FUN_002c5c78 and FUN_002cd288 in between. FUN_002cd288 is VC's DoDoomAiming (end.z only;
+  skipped for the player when the weapon info's flag 0x40, can aim, is set); FUN_002c5c78 destroys objects within
+  1.5 degrees of the shooter's 2D heading and 200 m (counted at 0x4CD4AC - collectibles?), not aiming.
+- **Weapon types** (weapon.dat's names at 0x4C3548, in CWeapon::Fire's order): 0 Unarmed, 1 BrassKnuckle, 2
+  ScrewDriver, 3 GolfClub, 4 NightStick, 5 Knife, 6 BaseballBat, 7 Hammer, 8 Cleaver, 9 Machete, 10 Katana, 11 Chainsaw,
+  12 Grenade, 13 DetonateGrenade, 14 LandMine, 15 SeaMine, 16 TearGas, 17 Molotov, 18 Rocket, 19 Colt45, 20 Python, 21
+  Shotgun, 22 Spas12Shotgun, 23 StubbyShotgun, 24 Tec9, 25 Uzi, 26 SilencedIngram, 27 Mp5, 28 m4, 29 Ruger, 30
+  SniperRifle, 31 LaserScope, 32 RocketLauncher, 33 FlameThrower, 34 M60, 35 Minigun, 36 Detonator, 37 HeliCannon, 38
+  Camera, 39 Binoculars. First-person modes (TheCamera + 0x7F0, set from ProcessPlayerWeapon by FUN_00235c70 through
+  FUN_0037c488): 30 / 31 -> 7, 32 -> 8, 38 -> 46, 39 -> 47; instant-hit weapons in modes 34 / 45 fire through
+  FireM16_1stPerson (its line of sight returns to 0x2CB394).
+- **Shotguns** (21 - 23): FireShotgun (FUN_002c9190) copies the source, takes the heading (or the angle to +0x820) and
+  calls FUN_002c7c28, whose pellet loop (21: 3 pellets 4.5 degrees apart, 22: 3 x 3, 23: 5 x 4.5; no randomness) calls
+  ProcessLineOfSight returning to **0x2C8278**: start a0 = s7 (the muzzle copy, shared, the tracers' start), end a1 =
+  sp+0x90, the pellet's index at sp+0x170 (count sp+0x160), f22 the step and f23 half the spread (radians: pellet i =
+  the middle + f23 - i f22), DoDoomAiming applied to the player too (0x2C80A8). The other call (0x2C8018) is VC PC's
+  mouse-aimed shotgun (Using3rdPersonMouseCam FUN_002a2e30, needs 0x488EB4, always 0): its start, the camera line's
+  point nearest the muzzle, at sp+0xB0.
+- **Other weapons**: thrown 12 / 13 / 16 / 17 and the land mine 14 through FireProjectile (FUN_002c9660 ->
+  AddProjectile FUN_0017f008): the heading only, the velocity from the ped's throw power (+0xC70); one spawn point for
+  all, FUN_001809a0 returning to 0x1804DC (a1 shooter, a2 matrix, a3 velocity). The rocket launcher fires only in the
+  first-person modes (the camera's front). The flamethrower (FireAreaEffect FUN_002ca078): half the heading, level;
+  AddShot FUN_00179708 returning to 0x2CA470 (*a3 the end) and the particles FUN_002c9d70 returning to 0x2CA4BC (*a1
+  the direction x 0.5). The sniper's player shot (FUN_002ca880) has no line of sight call.
+- **Free aim** (Game > Free aim, `VCS_FREEAIM=1`): FindWeaponLockOnTarget returns 0 for the player with a type 19..35
+  gun other than 30 / 31 (sniper rifles) and 32 (rocket launcher); with R1 held the camera hook (12c's) writes a camera
+  over the right shoulder - the ped's position + 0.58 m, 1.5 m back along the view, 0.48 m right, 0.1 m up, FOV 60,
+  eased in and out over 0.12 s from the game's follow camera (which keeps working ~4.2 m out; its distance - 0.2 m caps
+  ours, for walls behind) - and SetAimFlag's writes every update (the view's heading, minus its pitch), ClearAimFlag's
+  after. ProcessLineOfSight from FireInstantHit for the player (return addresses 0x2C47A4, 0x2C4914, 0x2C4CA0,
+  0x2C4F18) gets the camera's line while the view is ours: from the point of it nearest the game's start, the weapon's
+  range on. Checked in hidden runs: R1 with a ped 9 m ahead did not lock on (+0x820 0, mode 4), the camera eased over
+  the shoulder (FOV 60, the game's camera 4.18 m out), the pistol came up (flags 0x503, IK 0x9D) and followed the view
+  up and down; a ped 8 m out with the dot on its chest (**ped health: +0x4E4**, found by SET_CHAR_HEALTH 37) went from
+  37 to 4.5 with the first shot along the camera's line and died with the second (state 0x39, then 0x3A); in first
+  person the dot sat on the ped and the pistol, pointed along the view, showed at the bottom right. Shotgun pellets
+  (return address 0x2C8278): each the view's line turned by its own offset (f23 - index x f22) about the vertical, its
+  start in sp+0xB0 (a0 pointed there; the muzzle copy stays the tracers'); checked: one Shotgun shot, 3 pellets
+  through the hook, a 37-health ped 8 m out killed.
+
+- **Drive-bys** (SA's Manual Driveby Remake ported onto free aim): the game's own is **L2 or R2 (active cam + 0x74
+  becomes 1 / 2) + Circle, SMGs only (24..27)**; FUN_002163b8 runs the ped in a vehicle (+0x354: 1 none, 6 bike
+  FUN_00217188, 9 FUN_002175e8, else FUN_00216b60; anims group 0x3B, ids 0xEB..0xF8). The shots: **CWeapon::FireFromCar
+  (FUN_002c1bb0) -> FireInstantHitFromCar (FUN_002cb7c0)**, its ProcessLineOfSight returning to **0x2CC850** (start
+  a0 = its sp+0x40, the muzzle from the driver's hand; end a1 = sp+0x30; t1 the driver, s2 the vehicle, ignored by the
+  trace). ped +0xCF8 is a permanent dummy object made by the CPlayerPed constructor (FUN_0022ff20; deleted by
+  FUN_0022fbd8). **0x2C41AC** is FireInstantHit calling itself (0x2C52C0) to re-check a hit vehicle's occupants (a3 the
+  hit vehicle, occupants with +0x1D8 bit 29 made hittable for that trace), from the muzzle to the first trace's end.
+  Free aim in a car: holding L2 / R2 with an SMG puts a camera over the vehicle on that side (at most 3.2 m back, never
+  further out than the game's look-aside camera; +-77 degrees about the side, pitch -0.6..0.5, the aim FOV, eased
+  0.12 s) - in first person the in-car view - and 0x2CC850 gets its line (0x2C41AC only the start); no pose (the
+  drive-by animation holds the gun). Checked: L2 looked straight left (front . right -1.00), R2 right, the mouse turned
+  it, 10 / 10 / 11 rounds through the hook (left, right, first person), the dot centred, back to the game's camera on
+  release.
+
+### 12e. Vehicle cameras, in-car first person, vehicle glass, the field of view (2026-10-31)
+
+Found for in-car first person (`src/game/vcs_firstperson.cpp`) and `src/game/vcs_carglass.cpp` with the rig (car 211
+Sentinel, the PCJ-600) and the generated code.
+- **Modes**: CamControl (FUN_00372450) asks for a mode in the halfword 0x6F43E0; CCam::Process switches on mode - 1
+  (table 0x4B1870). **18** (FUN_0029faf0) behind cars, bikes, BMX, quad, helis, planes (vehicle +0x354 not 1 / 2; set
+  at 0x3736D4 / 0x3736F8), **22** boats and the jetski (+0x354 1 / 2, 0x373718; the same handler), **16** the game's
+  own in-car view (FUN_00295290 from 0x295BF4: the vehicle matrix x (0, seat.y + 0.08, seat.z + 0.62), the seat at
+  model info +0xA0 (+0x60 boats), FOV 60; bikes the lean matrix and the rider's bone 0x11 + 0.15) when the zoom float
+  TheCamera + 0x7C8 is 0. **Select** (FUN_00286220) steps the zoom down: 2 -> 1 -> 0 (mode 16) -> 5 (mode 14, cinematic)
+  -> 3 -> 2 (pad config 0, CPad + 0x92).
+- **Looking aside**: L2 left (FUN_00285940), R2 right (FUN_00285ab0), both behind (FUN_00285c20); CCam::Process
+  (0x294FCC..0x295144) applies them in modes 18, 16, 22 and 3 - **cam + 0x74: 0 behind, 1 left, 2 right, 3 ahead**
+  (TheCamera + 0x884 set on a change); helis and planes look behind only (the hovercraft 198 aside too). On foot R3
+  looks behind (FUN_00285dd0). CPad: new state at +2, old at +0x32 (L1 +0xA, L2 +0xC, R1 +0xE, R2 +0x10, Start +0x22,
+  Select +0x24, R3 +0x30).
+- **Mode 18's field of view is stateful**: FOV += (the speed along the vehicle's forward - 0.4 (boats 0.1)) x the
+  time step, then above 70 FOV = 70 + (FOV - 70) x 0.98^step (0x29FF6C..0x2A00B8) - scaling the CCam's FOV every frame
+  would compound. **CCamera::Process hands the frame's FOV to CDraw::SetFOV (FUN_002653e0, `ms_fFOV` 0x487484) at
+  0x37ADD4** (sp+0x104 + *(0x481CDC)); the renderer reads 0x487484 - the game's cameras' field of view settings scale it
+  there (return address 0x37ADDC), on foot (mode 4) and in vehicles (18, 22).
+- **The driver in a car** is drawn through the same path as on foot (FUN_003c3250 -> FUN_0024e8d0 at 0x3C3280,
+  FUN_0020c310 at 0x200740; one bone build a frame); **ped +0x30 holds his world seat position**. Head joint (bone 5)
+  in the Sentinel's matrix (-0.39, -0.19, +0.387), within 0.01 from 0 to 29 m/s (reversing he turns his head: (-0.32,
+  -0.10)); on the PCJ-600 in its lean matrix (-0.01, 0.135, 0.838) upright.
+- **Vehicle fields**: +0x354 type (0 car, 1 boat, 2 jetski, 4 heli, 5 plane, 6 bike, 8 BMX, 9 quad; model info +0x54),
+  +0x56 model, +0x160 handling (+0xD0 flags: 0x01000000 bike, 0x02000000 heli, 0x04000000 plane), **+0x140 move speed
+  (x 50 = m/s)**, +0x70 turn speed, +0x384 driver; bikes **+0x684 lean (radians)** and **the lean matrix at +0x3C0** (it
+  rolls; the bike's own matrix stays level).
+- **Near plane in vehicles**: CCamera::Process sets 0.1125 every frame (0x378F24) before the CCam's update; mode 18
+  lowers it when obstructed, mode 16 through FUN_002a4d90(cam, 0.1); after the height routines only a script near plane
+  (0x3790A0, TheCamera + 0x894), 0.00625 in a blocked transition (0x37A978) and helis / planes over 55 m (0x37B010)
+  change it.
+- **Vehicle glass** is not separate parts: the windows are meshes with one glass material (model 211: colour
+  0x32C2B666, alpha 0x32) in `chassis_hi`, the windscreen and the front doors, materials shared by every vehicle of the
+  model. FUN_003942b0 (cars; FUN_00394438 / 394620 / 3947c8 / 394960 the other types) gives `_hi` parts with an alpha
+  material or named "windscreen" FUN_0036df88, the rest FUN_0036de58; all end in the part render FUN_0039ec18
+  (FUN_0039e828 for pipeline 0x47), which hands **each mesh's colour to FUN_0039e7f0(rgba)** (alpha halved, to the VU)
+  before its draw - from 0x39F89C / 0x39F9C0 (the part in s7) and 0x39E920 / 0x39EB24 (the part at 0(sp)). RslElement
+  +0x04 frame, +0x18 its clump (vehicle +0x50); RslNode +0xA8 name. World draws alpha-test GREATER 8.
+- **In-car first person** (First person + "First person in vehicles"): in modes 18, 22 and 16 the camera at the head
+  joint of the last draw kept in the vehicle's space (the lean matrix on bikes) + 0.075 m ahead, 0.09 m up, the mouse
+  / right stick looking about the vehicle's ahead (cam + 0x74 adds L2 / R2's quarter turns or behind), eased back after
+  0.75 s without look input above 3 m/s (time constant 0.35 s), rolling with the vehicle, FOV of first person, near
+  plane 0.1; the game's camera keeps running underneath. The windows: FUN_0039e7f0's colour gets alpha 0 for the
+  player's vehicle's glass meshes (alpha < 255, or parts named windscreen*). Checked in hidden runs: the eye at
+  (-0.40, -0.12, 0.48) in the Sentinel, looking ahead (front . forward 1.00), the mouse turned it 1.5 rad, 3 s driving
+  brought it back (-0.008), first person off gave mode 18 back; the dashboard, wheel and hands drawn, the glass gone, and
+  shown again on foot. Field of view settings: CDraw's FOV 90 on foot with 90, 85 in the car with 85.
+- **Camera shake**: CCamera::Process applies VC's CamShake after the CCam's update (0x37AC5C..0x37AD5C): strength =
+  TheCamera + 0x7C0 (force) - 0.00028 x (now - TheCamera + 0x7C4, the start, ms), clamped 0..2; a random offset of up to
+  +-0.7 x strength per axis added to TheCamera's position (+0x30) and the pad rumbled from it. Set by CamShake
+  FUN_00376988 / FUN_00376a28 (explosions FUN_002e1140, the sniper's shot, ...). In-car first person zeroes the force
+  every update (the third-person cameras keep their shake) and eases the vehicle's forward / up for the view over 0.08 s
+  (the body's jolts on bumps at speed stayed in a view fixed to it).
+
+### 12f. Hook points for a physics engine - SA's Jolt Physics mod (research, 2026-10-31)
+
+From the analysis of SA's "[SA] Jolt Physics" (an ASI with Jolt 5.6.0 statically linked: death / knockdown / active
+ragdolls, ballistics, gore, foot IK, jiggle bones, gun and cash props; hooks per frame after CGame::Process, rendering,
+Fx_c::TriggerGunshot, CBulletTraces::AddTrace, CExplosion::AddExplosion, CWeapon::GenerateDamageEvent, the dead-ped
+money / weapon pickups, CPopulation::ManagePopulation, CEntity::GetIsOnScreen, CPhysical::ApplySpeed). VCS's
+counterparts, from the generated code (not all checked at run time):
+- A physics step: **FUN_00408c30**, called only at 0x3BABDC, right after CWorld::Process (0x3BABD0) in CGame::Process.
+- Bones for a ragdoll: the ped's 25 world matrices of its last draw (12c), written in the FUN_0020c310 before-hook at
+  0x200740.
+- **CPhysical::ApplyMoveSpeed = FUN_00348098** (no direct callers: through the vtable).
+- **CPed::SetDie = FUN_0020a3b8** (state 0x39), **SetDead = FUN_0020a818** (0x3A), both through SetPedState
+  (FUN_00219340); a knockdown FUN_0020b558 (state 0x33; unverified).
+- Bullet hits: FireInstantHit -> ProcessLineOfSight -> FUN_002c5320 (called once at 0x2C5138; likely the impact,
+  unverified). **CExplosion::AddExplosion = FUN_002e1140** (from the ADD_EXPLOSION handler FUN_00182998; 22 callers).
+- CPopulation::Update FUN_00430148, entity removal FUN_00198408 (corpse despawn; partial).
+- Open: the CColModel layout and the world sectors' collision lists (for world collision in a physics engine); VU code
+  runs with round-toward-zero, so a native physics step needs the host rounding mode restored around it.
+- Milestone 1 (death ragdolls) is built on the step, the bones, ApplyMoveSpeed and SetDie, checked at run time: 12h.
+
+
 ## 13. Open questions / next research targets
 
 - Main loop, frame limiter, CTimer (section 4) - milestone 4 (60 fps).

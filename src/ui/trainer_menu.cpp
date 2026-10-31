@@ -5,6 +5,7 @@
 // frame from the trainer's state, so a row always shows what is true now.
 #include "ui/trainer_menu.h"
 
+#include "game/vcs_firstperson.h"
 #include "game/vcs_trainer.h"
 #include "platform/platform.h"
 #include "runtime/ps2_control.h"
@@ -75,6 +76,7 @@ namespace ui
         bool g_releaseWait = false;
         bool g_chordWasDown = false;
         bool g_camChordWasDown = false; // Back + LB: the free camera
+        bool g_fpChordWasDown = false;  // Back + R3: first person
         std::vector<Level> g_stack{{Main}};
         bool g_padWas[platform::GAMEPAD_BUTTON_COUNT] = {};
 
@@ -525,6 +527,12 @@ namespace ui
         g_camChordWasDown = camChord;
         if (!settingsMenuOpen() && (pressedKey(settings::value("controls.freecam_key")) || camChordPressed))
             tr::setToggle(tr::FreeCamera, !tr::toggle(tr::FreeCamera));
+        // first person's hotkey (game/vcs_firstperson.h), the same way
+        const bool fpChord = padDown(platform::GAMEPAD_BACK) && padDown(platform::GAMEPAD_RIGHT_STICK);
+        const bool fpChordPressed = fpChord && !g_fpChordWasDown;
+        g_fpChordWasDown = fpChord;
+        if (!settingsMenuOpen() && !g_open && (pressedKey(settings::value("controls.firstperson_key")) || fpChordPressed))
+            vcs::firstperson::toggle();
         if (settingsMenuOpen()) // one menu at a time
         {
             if (g_open)
