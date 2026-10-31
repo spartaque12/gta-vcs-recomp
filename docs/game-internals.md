@@ -1193,6 +1193,19 @@ the exe's `-ffp-contract=off`, docs/MODDING.md).
   `FUN_003A52F8` GetAtomicFromDistance, `FUN_003A5380` the largest, `FUN_003A53E0`) and the vehicles' light coronas
   (x 50 / 90 / 100, `FUN_00141FE8`). Raising the scale to 4 brought lamp posts, trees and small objects in along a
   Little Havana road seen from 60 m up.
+- **Facing the sun costs nothing measurable** (2026-10-31, a user report "the first-person camera is not smooth when I
+  look at the sun"). Hidden runs on an exe copy (user card copy, Fort Baxter, 15:00 / 17:00, sunny, first person, 120 fps
+  independent timing, `PS2X_GPU_TIMING=1`): at 2560x1440 MSAA 4x the sun on screen took 2.6-3.5 ms GPU a frame and the
+  game held 120.0 fps (frame time sd 0.0-0.1 ms), the opposite direction (buildings) 6.7-7.4 ms GPU and 109-114 fps; the
+  sun's glow sprite (64x64, `gs draw fbp 140`), bloom and trails are 0.2-0.5 ms together in both directions. game_ms
+  (EE) 4.4 ms toward the sun, 5.8 away. There is no GS readback: a local->host transfer is served from the CPU GS copy
+  (`ConsumeLocalToHostBytes`, no GPU wait), and the corona code (6l above) projects on the CPU. The first-person view
+  itself is regular: a per-frame trace (rig `trace` of the camera's front at `0x6F4550`) while the right stick turned the
+  view at 2.5 rad/s gave 0.0208 rad a frame with sd 0.0005 facing the sun (8.33 ms frames) - the look follows each
+  frame's real time (`vcs_input.cpp`). The user's video (2560x1440, the game's own counter) reads 120 fps looking away
+  and 116-119 fps turning toward the sun, where palm fronds and city blocks filled the view: the frame rate dipping just
+  under the 120 cap on a 240 Hz display in a window (no VRR in a window unless the driver allows it) is what judders - a
+  missed 8.3 ms slot shows a frame for three refreshes instead of two.
 
 ## 7. Textures: `.XTX`
 

@@ -992,3 +992,15 @@ with the exe's float flags (`-ffp-contract=off`, AVX2). "Alpha dual pass" stays 
 not part of the mod. The light table stays where it was (`p2dfx\lights.bin` beside vcs.exe). Checked in hidden runs on a
 privately linked exe (port 47690): at 23:00 4,423 lights loaded, 823 drawn, 41 more stars, 15 distant vehicles, the
 rows in place; without the DLL the rows and the `p2dfx` command are gone and the game runs.
+
+## 2026-10-31 - "Not smooth when facing the sun": no code change, a frame-pacing finding
+
+Measured instead of guessed (game-internals.md 6l, last row): the sun, its glow sprites, bloom and trails cost 0.2-0.5 ms
+GPU in any direction and nothing on the EE; there is no synchronous GPU readback; the first-person look advances evenly
+with each frame's real time. The user's own video shows the game's counter at 116-119 fps (cap 120) while turning toward
+the sun over palms and buildings, 120 elsewhere: the scenery's load, not the sun, pushes frames just past the 8.3 ms
+slot, and in a window on a 240 Hz monitor (vsync "Off, allow tearing", no VRR in a window) each miss holds a frame for
+three refreshes. Nothing in the renderer or CameraAim is wrong, so nothing was changed there; the remedy is settings:
+fullscreen with G-Sync / FreeSync (VRR absorbs a few fps), or a cap with headroom that divides the refresh (80 at 240 Hz),
+or vertical sync On with a cap of 120 and MSAA 2x for headroom. Smoothing the look over host frames was not done: game
+and host frames are one-to-one at these settings, so it would only add delay.
