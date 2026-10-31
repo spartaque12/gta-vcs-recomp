@@ -2552,6 +2552,20 @@ place in the view's frame) and screenshots.
   enter (car: mode 4 for 2.5 s, then 18) and exit in first person. One frame of a bike dismount still showed the back of
   his head (the head not collapsed in that draw: the hook at 0x200740 apparently not reached for it); a jump of the eyes
   over 0.35 m in one update is held for up to three updates.
+- **Getting in and out, frame by frame** (the user's video: "my neck detaches", a torso blink stopping a backward run):
+  per-frame captures of a Sentinel's and a PCJ-600's enter and exit found four causes. (1) The skeleton check at
+  0x200740 (head within 2 m of the ped's position) failed while the ped's position lagged the anim by metres: those
+  draws kept the head and the eyes went stale - now a head within 3 m of the vehicle counts while he has one. (2) The
+  camera is worked out before the draw, from the last draw's head: while he ducks in the head moves fast, so the drawn
+  body is moved by the difference to put the head joint at the camera (at most 0.8 m; the neck collapsed too). (3) His
+  head goes into the door pillar leaning out and through the roof standing up to get out (anims do not collide): a car
+  driver's head in the vehicle's space is kept softly inside - past 0.42 m from the middle and past 0.05 m over his
+  seated head height (within the cabin and its door opening) it moves at 35%; the body follows. (4) The frame the
+  vehicle is let go his position is set anew: a jump of the ped over 0.35 m holds the eyes for that frame. The jump
+  guard from before held the eyes when the body turned in one frame at the end of a backward run (our turn to the
+  view): that was the torso blink; it holds only in those two cases now. TheCamera's matrix matched the CCam's
+  source on every captured frame (no mode-switch blend; first person's view is copied into the other two CCams anyway).
+  Left: two frames at the start of getting in look over the roof edge as he ducks.
 - **Running backwards** the game turns the body to the run (S with the view ahead: the body faces the camera's back), so
   the eyes at the head joint looked into his collar. The eyes now move out along the view's horizontal direction by 0.15 m x
   (1 - view . body forward): 0 looking ahead, 0.3 m looking back.
