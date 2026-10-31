@@ -2192,6 +2192,171 @@ anim tree - from first person's status - dumped standing and running; spawned pe
   ADD_EXPLOSION of type 0 (a grenade's) 2 m from a lying body threw it 7.3 m, and the ped 2 m on its other side died
   and was thrown by the blast's own throw (the game's 11 m/s left out).
 
+### 12i. Animation blocks - the Immersive Weapons Pack's animations (2026-10-31)
+
+Found by reading the 'mina' chunks from the disc (CStreaming ids 8392 + the block) and the generated code.
+- **Loading**: ConvertBufferToObject -> FUN_003C7AD8 -> **FUN_003C7B28**: checks the ident 'mina' and fileEnd /
+  relocation table against the buffer (size x 2048), relocates (FUN_00324A50), then **FUN_002259A8**(CAnimManager, block,
+  pointer array, chunk): the block record is `*(*(manager + 0xC) + 0x10140) + block x 0x30` (+0x1C first animation, +0x20
+  count, +0x24 the chunk, +0x14 loaded), and hierarchy i (0x28 bytes) is **copied** to the animation slot
+  `*(... + 0x1013C) + (first + i) x 0x28`. So a replacement block keeps the anims' count, order and names.
+- **Layout**: +0x20 an array of pointers to the hierarchies (as many as the block record says), then the key data
+  (each track's keys word-aligned), the hierarchies, the tracks, the relocation table (the array, each hierarchy's
+  tracks pointer, each track's keys pointer). **Hierarchy 0x28**: tracks pointer, name[24], u32 track count, float
+  duration, u32 a size (equal to the key bytes for some anims, larger for others, the same 6780 / 9266 for every
+  crouch anim of several blocks - not understood; a converted anim gets max(original, its own bytes)). **Track 12
+  bytes**: u16 flags (**0x9** rotation, **0xB** rotation + translation: the root), u16 key count, keys pointer, **u16
+  bone id**, u16 a hash per bone (0 df9e, 1 b88a, 2 9a64, 3 bcfc, 4 e97b, 5 6e99, 31..35 b052 2830 1e52 c7d5 a1c5,
+  21..25 8935 1157 7a50 fe09 c8f4, 41..43 cdd3 ccec 2938, 51..53 fa32 f530 10e4). **Keys** are half floats: quaternion
+  x y z w, **the time since the previous key** (the first 0; every track sums to the duration), then x y z for 0xB.
+  Bone ids are SA's (0 root, 1 pelvis, 2 / 3 spine, 4 neck, 5 head, 21-25 right arm clavicle .. finger, 31-35 left
+  arm, 41-43 / 51-53 legs); fire anims carry only the bones they move (colt45_fire: 21-24).
+- **Weapon blocks**: buddy 8404 (0x2DF3, 8 sectors: buddy_crouchfire / fire / reload), colt45 8408 (0x2DC3, 4:
+  colt45_cop / crouchfire / crouchreload / fire / reload), python 8459, RIFLE 8464, shotgun 8467 (fire, crouchfire),
+  sniper 8469, TEC 8474, UZI 8480, M60 8444, rocket 8466, FLAME 8415; melee: 8395 bat / golf club, 8406 chainsaw, 8427
+  knife, 8473 sword; 8419 throwing. tools/anim_convert.py has the table and `--dump`.
+- SA's IFP (ANP3) bones carry the same ids and the same bone frames: the first frames of anims both games share
+  (colt45_fire) agree within 4 - 15 degrees bone by bone, other pairs differ from anim to anim with no constant offset;
+  crouching lowers the root 0.58 m in SA, 0.59 - 0.63 m in VCS.
+- **SA's fire anims lean on SA's aiming IK**: unaimed they leave the elbow bent (colt45_fire's forearm 97 degrees off
+  VCS's at the fire point), and their spine / neck keys (the clavicles' parents) tip the gun up - converted as they are,
+  the Colt45 fired pointing at the sky. VCS's own fire anims hold the gun out themselves and carry only the arms. So a
+  converted standing fire anim keeps the arms (21-25, 31-35) and both clavicles turn, in the neck's frame, by the
+  rotation that puts SA's gun hand (21 * 22 * 23 * 24) onto VCS's own anim's at the weapon's fire point; the second hand
+  of a two-handed hold moves with it.
+- The Tec9 fires with neither the TEC (8474) nor the UZI block loaded by it in the checks (one-handed, as before the
+  change): TEC is not used by the player's weapons; the Uzi, MP5 (and the silenced Ingram) use UZI.
+- Checked (hidden runs, build/iwp/stageB): every converted block loads through the override (CStreaming state 1), the
+  Colt45 fires two-handed, the Python, shotguns, Uzi, MP5, M4 / Ruger and sniper rifle fire and reload in the pack's
+  poses, no errors in the log.
+
+### 12h. Death ragdolls - Jolt Physics, milestone 1 (2026-10-31)
+
+Found for `src/game/vcs_jolt.cpp` / `src/physics/ragdoll.cpp` with the rig on a copy of the user's card (the player's
+anim tree - from first person's status - dumped standing and running; spawned peds killed) and the generated code.
+- **RslTAnimTree +0x30, the node info**: 8 bytes a node - byte 0 the bone id, byte 1 its index, **byte 2 the flags (2
+  push, 1 pop the parent: RenderWare HAnim's)**, byte 3 (1 on the root) - and a word (0). The ids are SA-like: 0-6 root,
+  pelvis, spine, spine1, neck, head, head end; **31-35 the left arm, 21-25 the right arm, 41-43 the left leg, 51-53 the
+  right leg, 0xFF the toes**. The flags give **0 <- 1 pelvis <- 2 spine <- 3 spine1 <- 4 neck <- 5 head <- 6; the
+  clavicles (7, 12) hang off the neck, the thighs (17, 21) off the spine (2)**, each limb a chain (3ds Max Biped's
+  layout). Another copy of the same array follows it.
+- **Bone frames** (orthonormal, right-handed): bones 1-4 X up the spine, Y forward, Z left; the root (0) X forward, Y
+  left, Z up; a limb's X runs along it to its child; the clavicles' X outward. **An elbow or knee bends about the Z its
+  two bones share** (left on both arms, right on both legs) **by a negative angle**: knees -20 degrees standing, -80 and
+  -111 running; elbows -100 and -122 (worked out from the dumped matrices).
+- **Dying**: health (+0x4E4) set to 0 kills the ped in its next CPed::ProcessControl (VC's `health <= 1` -> SetDie):
+  state 0x39 at once, 0x3A about a second later. **CPed::SetDie** (FUN_0020a3b8, a0 the ped; nothing when the state is
+  already 0x39 / 0x3A) runs inside CWorld::Process, before FUN_00408c30. Vic's death (Wasted) too; about 10 s later the
+  game puts him at the hospital (a teleport; the same ped) with his state back to 1.
+- **CPhysical::ApplyMoveSpeed** (FUN_00348098): with either of the entity flags +0xE8 bits 62 / 63 it zeroes the move
+  speed (FUN_00356288), else position (+0x30) += move speed (+0x140) x ms_fTimeStep.
+- **A standing ped's position is ~1 m over its soles** (its toe bones at -0.98 / -0.99, its feet at -0.91): a ped spawned
+  on the road at z 11.10 had its toes at 10.11; Vic, 4 m away on the pavement, stood at 11.25.
+- **The ragdolls** (Game > Physics > Ragdolls, `VCS_JOLT`; DECISIONS.md): SetDie notes the ped and its move speed x 50
+  (m/s); at its next draw - its tree noted where FUN_0024e8d0 returns to 0x3C3280, then FUN_0020c310 at 0x200740 before
+  the skinned draw - a Jolt ragdoll is made from the bones just built: 11 bodies (hips on bone 2, chest 3, head 5, upper
+  arms 8 / 13, forearms 9 / 14 with the hands, thighs 17 / 21, calves 18 / 22 with the feet), swing-twist joints at the
+  waist, neck, shoulders and hips, hinges at the elbows and knees (-150 .. +3 degrees about their Z). From then on its 25
+  matrices are written there at every draw: the parts' bones from the bodies, the others carried with their parents as
+  at death. FUN_00408c30's before-hook steps the physics (ms_fTimeStep / 50 s) and moves the ped's x / y to its root
+  bone; ApplyMoveSpeed is not run for it. The ragdoll goes when the ped's pool slot is freed or reused, its state leaves
+  0x39 / 0x3A, or the game moves it by more than 2 m (Vic's respawn). Until the world's collision (milestone 2) each lands
+  on a ground of its own 1 m under the ped's position (or under its lowest bone).
+- Checked (`tools/ragdoll_check.py`, hidden): a ped killed standing still - the ragdoll made at its next draw, the
+  pelvis from 11.08 down to 10.16 (the hips down, the trunk still up), then the trunk over: lying at 10.23, 13 cm over
+  the road, still and asleep after ~4 s, the drawn pelvis the physics' own, the ped's position on the body; then Vic
+  killed: his ragdoll, his respawn at the hospital (-884, -470), the ragdoll gone. Eight peds killed at once: the step
+  0.49 ms on average while they fall (0.70 at most, 88 bodies awake), ~0.005 ms once asleep. The setting switched at
+  run time: off (the default) the game's own death, on the next death a ragdoll, off again the ragdoll removed. Street
+  peds of models 8, 26, 28, 43 and 64 (and the spawned 55) all have this skeleton; their corpses are deleted by the game
+  once Vic goes elsewhere (the ragdolls with them). The matrices' w lanes read 0 (bones 0-5 of six trees); the game
+  never writes them, so only the rows' xyz are taken or written. One ped was refused before refusals said why (a
+  stricter check on all 16 floats then): not seen again.
+- **The killing blow** (the user's videos: a shotgun victim only crumpled, cars drove through the bodies). **CPed::
+  InflictDamage = FUN_001d7940**(ped a0, attacker a1, weapon a2, damage f12, piece a3 - VC's 0 torso, 1 mid, 2 / 3 left /
+  right arm, 4 / 5 left / right leg, 6 head -, direction t0; t1 is stored and never read); VC's: it bumps the player's
+  shots-hit count (CPlayerInfo +0x154, 0x190 per player) for damage over 3 and calls SetDie. Found as the function
+  calling SetDie three times among SetDie's 12 callers (FUN_00203240, the other one also calling InflictDamage, is a
+  fall's landing: state 0x2E, the bike / quad / BMX under the ped). **The game knocks the ped back before
+  InflictDamage**: a shotgun victim had 5.6 m/s at its first pellet's call, a ped run down 5.2 - 13 m/s. A car's hit
+  comes as weapon 42 or 43 with the vehicle as attacker (piece 1 or 6).
+- **CColModel**: **model info +0x14**; +0x00 the bounding sphere's centre, +0x0C its radius, **+0x10 the box's min,
+  +0x20 its max** (16-byte vectors), in the model's frame (found by following model info pointers to sphere-and-box
+  floats in a run): the Sentinel (211) (-1.18, -3.11, -0.68) .. (1.18, 2.69, 0.75), radius 2.82; peds (-0.35, -0.35,
+  -1.0) .. (0.35, 0.35, 0.9), radius 1.25 - their position 1 m over the soles again.
+- **The blow's push** (DECISIONS.md): InflictDamage's arguments are kept per ped (the first of a frame's burst: a
+  shotgun's later pellets come after the knock-back); when SetDie follows, the ragdoll gets, from a ped attacker, a
+  push from its side on the part hit (kg m/s by weapon, after SA's mod's DeathPush; shotguns over the trunk, x 1.6 at
+  point blank down to x 1 at 10 m) with the victim's own speed capped at 2 m/s (the game's knock-back left out); from a
+  vehicle, its speed at the blow to the legs (lifted), less to the trunk and head. Vehicles within 15 m of a ragdoll
+  are kinematic bodies: the col model's box raised 0.25 m off the ground; a car (+0x354 = 0) as its lower body to 55% of
+  the height plus the cabin, set back a third of the length from the front.
+- Checked (`tools/ragdoll_check.py`): a Shotgun kill at 4 m throws the body 2.3 - 2.5 m back, airborne at 0.25 s
+  (before: it crumpled where it stood); Vic's Sentinel at 11.8 m/s into a ped - the body over the bonnet against the
+  windscreen, legs up, for ~1 s while he keeps the throttle, then off the front as the car slows, 0.9 m ahead of the
+  bumper (before: the car drove through it). Right after the Wasted respawn the game ignores the throttle for a while
+  (the check runs the car before Vic's death).
+- **Shots on a body already down** (the user's request: corpse reactions). **CWeapon::DoBulletImpact = FUN_002c6460**
+  (weapon a0 - its type at +4 -, shooter a1, victim a2, source* a3, end* t0, **colpoint* t1**: the point at +0, the piece
+  hit at +0x33, as InflictDamage's piece), called from FireInstantHit (0x2C51FC) and FUN_002cb1d0 (0x2CB4C4) only. The
+  Shotgun's pellets (FUN_002c7c28) have their own: ProcessLineOfSight (start *s7, end s2, colpoint sp+0x30, the entity
+  out at sp+0x150, weapon sp+0x154; the two bytes cleared after it are VC's bIncludeDeadPeds pair), then for a ped not
+  dying / dead ApplyMoveForce (FUN_00347D20: the knock-back, ~6 x the line + 5 up) and InflictDamage; for one dying or
+  dead (0x2C85E0 -> 0x2C8914), with the gore flag **CGame::nastyGame 0x489F80** (1), **CEntity::GetIsOnScreen =
+  FUN_003c4318** (its col sphere against the view) then 8 blood particles (FUN_001E9040) and, dead, a hit-the-floor
+  animation (FUN_00178828 on the clump) - no physics. **The game's own collision for a dead ped is not where its ragdoll
+  lies**: Colt45 shots aimed at a lying body's hips (traced at DoBulletImpact) hit the road under them (victim a building
+  entity), a Shotgun's pellets met it now and then. So bullets are cast against the ragdolls themselves: a before-hook
+  on **CWeapon::ProcessLineOfSight (FUN_002d0870; start* a0, end* a1, ..., weapon t0, shooter t1)**, every bullet's line
+  (FireInstantHit's, each pellet's, drive-bys'), Jolt's ray against the ragdoll parts, the part met pushed at that
+  point (kg m/s per bullet by weapon, after SA's PhysicsForce x 2). Free aim's hook on the same function is installed
+  after Jolt's, so it wraps it and the line seen is the camera's.
+- **Blasts**: **CExplosion::AddExplosion = FUN_002e1140**(exploding entity a0, culprit a1, type a2 - 12 types through a
+  jump table, VC's radius / power pairs: grenade and car 9 / 300, rocket 10 / 300, heli 6 / 300, mine 10 / 150, ... -,
+  position* a3, lifetime t0) calls **CWorld::TriggerExplosion = FUN_00192760**(position* a0, culprit a1, flag a2, a3,
+  **radius f12 = the explosion's +0x20, power f13 = its +0x40**), also called twice from CExplosion::Update (0x2E2494,
+  0x2E3010). It runs the sector lists through FUN_001929a8 (3 calls), which pushes and damages (InflictDamage with the
+  blast's weapon: a grenade's 12, else 0x31) - the push again before the damage (a grenade's victim had 11 m/s at
+  SetDie). The script command **ADD_EXPLOSION is opcode 0x013C** (x, y, z, type; handler FUN_00182998, found in the
+  opcode table at 0x4BEAF0 by its handler).
+- Checked (`tools/ragdoll_check.py`, a second game with first person and free aim to aim down at a body): Colt45 shots
+  at a lying body hit its ragdoll (2 of 3), a Shotgun blast put 3 pellets on it and shoved its pelvis 0.24 m; an
+  ADD_EXPLOSION of type 0 (a grenade's) 2 m from a lying body threw it 7.3 m, and the ped 2 m on its other side died
+  and was thrown by the blast's own throw (the game's 11 m/s left out).
+
+### 12i. Model infos by name, vegetation models - the 80's VC True Vegetation port (2026-10-31)
+
+Found with RAM dumps of a hidden run (the rig's `dump`) and the models read from the disc (`tools/veg_convert.py`).
+- **Model infos start 0x24 before their vtable word** (GCC 2's vptr placement): +8 the name hash, +0x1E the texture
+  dictionary slot, +0x24 the vtable (CSimpleModelInfo `0x4915B0`, 3,840 of 4,428; weapons `0x491938`), +0x28 the atomics,
+  +0x2C the LOD distances, +0x38 the atomic count, +0x3A flags. The weapon offsets in 12g count from the same start.
+  **CModelInfo's pointer array** is on the heap (`0x1AB4CC8` in that run): found as the array whose entry 346 points to
+  the model info with dictionary slot 293 (the Colt45).
+- **Names are CKeyGen::GetUppercaseKey = `FUN_00366480`**: CRC-32 (table at `0x488860`, start 0xFFFFFFFF, no final xor)
+  of the upper-cased name; `FUN_00366428` is the same without upper-casing. So VC's names find VCS's models.
+- **VCS keeps VC's vegetation names**: `veg_palm01` 578, `veg_palm02` 546, `veg_palm03` 547, `veg_palm04` 545,
+  `veg_palmbig14` 574, `veg_palwee01` 548, `veg_palwee02` 549, `veg_tree3` 540, `veg_treea1` 541, `veg_treeb1` 542,
+  `veg_treea3` 543 - CSimpleModelInfo, one atomic, flags 0x840, LOD distance 290 for the big palms; each with a texture
+  dictionary of its own (slots 375-385, no other model uses them). `veg_palwee03` and the `veg_palmkb*` set exist as
+  names without data (no position in GTA3PS2.IMG). The palms are VC's designs drawn larger (`veg_palm01` 33.5 x 27.4 x
+  41.2 m against VC's 24 x 13.5 x 29), 76 - 602 triangles, 1 - 4 sectors, dictionaries of 6 - 7 sectors.
+- **Map objects are prelit**: the same 'ldm' as the weapons (12g) but geometry flags **0xD** (weapons 7) and per batch
+  V3-16 positions at 1, **V2-8 uv at 0x48**, **V4-5 colours (RGBA 5551) at 0x8F**, MSCAL 6 (the VU1 program reads the
+  layout the flags give). The palms' colour is a flat `0xAD6B` (88, 88, 88 of 128).
+- **Texture dictionaries ('xet')**: of the 2,748 textures in the dictionaries (ids 7534 - 8364) 2,034 are 4-bit -
+  raster word +4 `0x0045 << 16 | width / 2`, flags `log2 w | log2 h << 6 | 4 << 12 | 1 << 20` (one level), pixels
+  linear with the even pixel in the low nibble, then a 16-entry CT32 CLUT (alpha 0x80 = opaque), 32 x 16 to 256 x 256 -
+  and 714 8-bit (`0x0025 << 16 | width`, a 256-entry CLUT in CSM1 order), 8 x 8 to 256 x 256. Read from the disc with
+  the streaming infos of a RAM dump. The streaming object's +4 held 0x5B2800 (5.97 MB) in that run - likely the
+  streaming memory's size, not checked.
+- **A VU1 batch is a draw**: every batch of <= 70 strip vertices becomes a native draw, so a model's cost goes with its
+  strip vertices. In a Little Havana view full of palms the game's own drew 1,325 native draws (GS stage 6.0 ms); the
+  pack's palms (1,470 - 3,886 triangles, 3,054 - 8,088 strip vertices each) 4,631 (10.3 ms).
+- **Alpha-tested texels write depth**: world draws test alpha GREATER 8 (of 128) with no second pass, so a texel at,
+  say, half alpha is blended over what is already drawn and also hides everything drawn after it behind it. Foliage
+  textures with broad half-transparent areas (VC PC textures box-filtered to a quarter) showed the sky through as pale
+  patches; with alpha 0 / 128 only the bilinear edge band between texels is left half transparent.
+
 ## 13. Open questions / next research targets
 
 - Main loop, frame limiter, CTimer (section 4) - milestone 4 (60 fps).
