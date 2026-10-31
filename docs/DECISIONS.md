@@ -1366,3 +1366,11 @@ collar when looking away from the body (running backwards) - both the user's rep
   aim's VcsModInstallLate still wraps its line of sight.
 - **An older vcs.exe** (ragdolls built in): the DLL notices in VcsModInstallLate that the exe's death hook wrapped its
   own and makes all its hooks pass through (one log line) - never two sets of ragdolls.
+
+## 2026-11-01 - The VR test package for a friend has no vcs.exe
+
+Asked for a package with vcs.exe for a friend with a headset. The upstream v0.0.1 release ships no vcs.exe (the
+launcher, Python, the libraries; the player's PC recompiles the game from their own disc: 2026-10-21, docs/LAUNCHER.md
+"A release"), and vcs.exe contains the recompiled game code. So `dist\VCS-VR-friend` holds the mods (VR.asi,
+openxr_loader.dll, CameraAim / Project2DFX / MeshSmooth / RenderHook .asi), the fork's vcs-mods source as a zip and
+README_VR.txt: the friend overlays the source on their v0.0.1 folder, builds with the launcher and copies the scripts.

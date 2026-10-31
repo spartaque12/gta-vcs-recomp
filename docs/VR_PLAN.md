@@ -22,6 +22,18 @@ without a headset (see "M0 as built" below); M1-M3 not started. The research (20
   HUD quad on every in-game frame, the F2 menu and loading screens on the cinema quad, the game camera turning and
   rolling with the head. **Not checked on a real headset** (none here): comfort, the real runtimes' swapchain formats,
   frame timing at 72-120 Hz.
+- 2026-11-01, later: `<exe folder>\run\vr.log` for players (runtime, headset, views, formats, refresh, every state
+  change and XrResult error, what is shown and why) and a "VR status" readout in F2. `xr_test_runtime.dll` now checks
+  the spec (call order, states, display time, released images, layers: `VALIDATION` lines) and takes a control file
+  (sleep / wake / focus / loss / exit / instance loss / recentre / refresh); `build\vr\vrscenario.py`'s 17 steps (on
+  foot, recentre, F2, dashboard, asleep / awake, 72 / 120 / 90 Hz, session loss, runtime restart, runtime exit, off / on,
+  a car) pass at 90 Hz RGBA sRGB, 72 Hz BGRA sRGB typeless images, 120 Hz linear RGBA, 0 violations. Fixed on the way:
+  a crash switching off / losing the instance mid-frame, a runtime restart during start counted as a failure, the
+  status never updating. Not covered (hidden runs): window resize / minimise / alt-tab, cutscenes (same path as the
+  car: no first person -> cinema).
+- A friend package (`dist\VCS-VR-friend`, local only): the mods built from VCS-mods 3956187, the fork's vcs-mods source
+  (93d18e2) as a zip, README_VR.txt. No vcs.exe: upstream releases ship none (source-only, DECISIONS.md 2026-10-21) -
+  vcs.exe holds the recompiled game.
 - Next: M1 (stereo by frame replay). Known gaps: vehicles are cinema-only; the HUD is world-locked (it does not follow
   the body's turn); the window still presents (vsync on can halve the headset's rate: turn Display > Vertical sync off).
 yes, and this port is better placed for it than any PC GTA. The renderer records every frame as a list of draw
