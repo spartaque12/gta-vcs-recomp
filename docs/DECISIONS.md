@@ -858,6 +858,159 @@ and IK (game-internals.md 12f). Milestone 1 (game-internals.md 12h):
   damage comes as the blast's weapon, a grenade's 12 or 0x31), in place of the game's push (one rigid 11 m/s throw
   given before the damage). Hit force scales it.
 
+## 2026-10-31 - Jolt Physics, milestone 2: the world's collision for the ragdolls (the user's request)
+
+Ragdolls land on, roll down and stop against the game's own collision (game-internals.md 12k):
+- **The game's col models, read where the game keeps them**, not a collision export of the disc's files: the sectors
+  CWorld itself walks (its building and object lists) around each ragdoll, each entity's col model through its model
+  info, in its own matrix. Whatever the game has streamed in is what the bodies meet, the same as the game's own peds
+  and cars, with nothing to convert or ship; what it has not streamed in has no primitives (their counts 0) and is left
+  out.
+- **Only near the ragdolls**: every step the buildings and objects whose bounding sphere comes within 10 m of a
+  ragdoll's hips are bodies in Jolt, the others are taken out (a few to a few dozen bodies; SA's mod keeps similar
+  radii). Buildings are static bodies; objects (street furniture, palms, props) kinematic ones moved with the game's
+  matrix each step, so a moved object carries or pushes a body and nothing a body does moves the object (the game
+  owns it). Vehicles stay milestone 1's boxes.
+- **One shape per col model, cached**: its triangles as a MeshShape (Jolt builds its own tree; the game's triangle
+  sections are not needed), its boxes and spheres beside it in a compound. Kept while the col model's counts, array
+  pointers and first vertices are unchanged - streamed collision can be freed and loaded again, and a changed col model
+  is made again - and dropped after 10 s unused. The triangles' winding is turned round: the game's front face is
+  clockwise, and Jolt ignores back faces.
+- **A ground of its own only where the world has nothing**: a ragdoll is made after the world around it is put in, then
+  a ray looks for a surface up to 50 m under the ped; with none (collision not streamed in) it gets milestone 1's slab
+  at its feet, otherwise none - a slab would catch a body falling off a roof in mid-air. A body 60 m under where it
+  started is frozen (whatever was under it is gone). `VCS_JOLT_WORLD=0` gives milestone 1's grounds back.
+- **The ped's height follows its body** (1 m over its lowest bone, as a standing ped's position is over its soles) once
+  they differ by 0.5 m: down stairs or off a ledge the game's position, its culling and the camera on a dead Vic go
+  with it. Small differences are left alone.
+- **Corpse shots stop at walls**: the ray of a bullet's line also meets the static world in the physics, and only a
+  ragdoll part met before any of it is pushed. Vehicles and objects don't stop it (a drive-by's line starts inside its
+  own car), nor do the ragdolls' own grounds.
+- **More room**: 2048 bodies (the world's capped at 1648, room left for 24 ragdolls and their vehicles), 8192 body
+  pairs, 4096 contacts. Still one thread: a body falling off a roof among 9 buildings stepped in 0.26 ms at most.
+
+## 2026-10-31 - Jolt Physics: bike falls - knockdown ragdolls (the user's request)
+
+The user asked for peds hit on bikes, and Vic crashing, to fall off as ragdolls (game-internals.md 12l) - the first of
+the mod's knockdowns, brought forward:
+- **Where the game throws a rider off, not a collision rule of our own**: CBike::KnockOffRider is hooked (before) and
+  the ragdoll made once the game has thrown the rider (its next draw in PED_FALL). The game keeps deciding who falls -
+  its bike damage (impulse per mass by hit direction: head on throws a rider at speeds a side hit does not), a car's
+  hit on the ped, a burst tyre, a killing shot - and its throw (the bike's speed and an upward kick) is the ragdoll's
+  start. Riders the throw kills get the death ragdoll (their SetDie is taken although their vehicle pointer is still
+  set then); a rider that dies while down becomes a dead body.
+- **The game's own fall state, held while the body moves**: the ped stays in PED_FALL with its get-up time held at -1
+  and its own speed at 0 (ApplyMoveSpeed is skipped for it as for the dead; gravity would pile up in its speed). Once
+  its bodies have slept (or its hips have stayed within 3 cm) 0.4 s, and at least 2.5 s after the fall (8 s at the latest) the ped is placed on the body - its position on the root bone, 1 m
+  over the lowest bone, facing along the body (feet first on its back, head first on its front, as the get-ups stand
+  up) - and its get-up time set to now: the game's own CPed::Fall gets it up with its own animation and control comes
+  back as usual. Removing the ragdoll for any other reason (switched off, moved by the game) also lets it up.
+- **The body's last pose eased into the get-up**: drawn as it lay until the game starts the get-up, then blended into
+  the animation over 0.35 s (positions in a line, rotations along the shortest arc), so the switch from physics to
+  animation is a quick roll, not a pop.
+- **Its own bike is no obstacle for it while it is down**: the rider starts astride it, and the bike's box would throw
+  the body out sideways the first step.
+- **Swept collision for the ragdoll parts** (Jolt's LinearCast): thrown at 15 - 30 m/s a limb moves more than its
+  thickness in a step, and the world's walls are single triangles, so a body could pass through one; cost only for
+  parts moving that fast.
+- **Game > Physics > Bike falls** (on by default, with Ragdolls on; VCS_JOLT_BIKES): the knockdowns can be left out
+  while death ragdolls stay. Other knockdowns (a car's hit on foot, blasts that leave a ped alive, melee) are not
+  ragdolls yet.
+
+## 2026-10-31 - Jolt Physics: hit reactions, GTA IV / Euphoria style (the user's request)
+
+The user asked for Euphoria-like shot reactions as in SA's Jolt Physics mod (game-internals.md 12n):
+- **A short active ragdoll on the animated ped, not a full takeover**: hips kinematic on the animation, muscles (Jolt's
+  joint motors) pulling every limb back to the animated pose, the bullet's push on the part hit. The game keeps the
+  ped - its state, AI, movement, aim -, so a reacting ped walks, flees or shoots on; only its drawn pose takes the hit,
+  0.2 s of physics then eased back into the animation by 0.9 s. Euphoria's full balance controller (staggering steps,
+  catching itself) is not attempted: the game's own knockdown decides when a ped falls, and that fall is 12l's
+  knockdown ragdoll, up again with the game's get-up.
+- **Muscle strength by the part**: per-joint torque (trunk and thighs 400 N m, arms 120, forearms and neck 60, calves
+  250) at 0.6 when hit, 1.0 at the end - strong enough that limbs come back without wobbling, weak enough that the hit
+  part jerks (up to ~0.3 m drawn). The push is 0.8 of the killing push by weapon; Hit force scales it.
+- **Game > Physics > Hit reactions** (on by default with Ragdolls on; VCS_JOLT_HITS). Not done from the SA mod: catching
+  the fall with the hands, blind fire from the ground, melee reactions.
+- **Wound clutch and stumble on the drawn pose and the position, not in the physics or the game's state** (the user's
+  follow-up): the hand to the wound is two-bone IK over the drawn blend (exact, cheap, no fight with the muscles); a
+  hard hit's stumble moves the ped's position along the push with procedural steps drawn on the legs - VCS's own
+  stagger state was not found among SetPedState's constant callers, and moving the position keeps its AI and
+  animation (running, aiming) as they are. Walls stop it (a ray against the world in the physics). A clutch is kept
+  when the ped flees (as GTA IV's do); neither for Vic.
+
+## 2026-10-31 - Jolt Physics: catching falls and firing back from the ground (the user's request)
+
+game-internals.md 12s.
+- **Arms by motors, not by an animation**: the knockdown ragdoll's shoulder and elbow motors reach the arms toward the
+  ground along the way the hips fall, so a forward fall puts the hands out in front and a backward one behind; limp
+  once the hips are near the ground, so the body still lands and lies as a ragdoll.
+- **The game fires the gun**: a host hook may not call into the game except as a tail call, so the shot is a tail call
+  to CWeapon::Fire from ApplyMoveSpeed (called for the ped each frame, its own work skipped for ragdolls, its caller
+  ignoring a return value). With no fire source the game puts the muzzle 0.6 m up the ped's axis from its position, so
+  the ped is turned to its shooter and moved for that one frame to put the muzzle at its hand - no guest memory of our
+  own is needed - and the next step puts it back on its body. Everything after is the game's: ammo, tracer, sound,
+  hits, the shooter's reaction.
+- Only peds shot down by a ped (not bike falls), never the player; 4 shots at most. Two toggles beside Hit reactions,
+  on by default with Ragdolls on (VCS_JOLT_CATCH, VCS_JOLT_BLINDFIRE).
+
+## 2026-10-31 - Foot IK: feet on the ground on slopes and stairs (the user's request)
+
+After SA's Jolt Physics mod's [FootIK] (game-internals.md 12q):
+- **The game's own collision, read directly**: Jolt's world bodies exist only around ragdolls, so the feet query the
+  col triangles of the entities in the sector under them, transformed once per entity and cached (an entity's ground
+  faces, rebuilt when its col model or position changes). A foot is a point query a frame: 0.011 ms for two peds.
+- **An IK on the drawn pose, not physics**: the pelvis down by the lower foot's need, a two-bone leg IK keeping the
+  knee in its bend plane and the step's lift, the foot tilted 0.7 to the slope - SA's MaxOffset / Smoothing /
+  AlignStrength values. The game's position, collision and animation are untouched; only what is drawn.
+- **A module of its own** (`VCS-mods plugins/JoltPhysics/src/footik.cpp`), chained on the same render hooks as the ragdolls and installed
+  after them so ragdoll poses win; Game > Physics > Foot IK (off by default, VCS_FOOTIK) and Foot IK for peds (25 m).
+
+## 2026-10-31 - Jolt Physics: dismemberment (the user's request)
+
+After SA's Jolt mod's [Dismemberment] (game-internals.md 12p):
+- **Stumps by collapsing bones, not by new models**: the severed part's bones are drawn at zero scale on the joint they
+  hang from, the skin weighted to them shrinks into it. VCS has no gore models and its ped is one skinned mesh drawn
+  by the game, so the cut part is gone rather than a loose limb (SA's DetachedMesh); its ragdoll bodies stay on their
+  joints as sensors so nothing feels the missing limb.
+- **The game's own blood**: CParticle::AddParticle(blood) reached by a tail call from ApplyMoveSpeed, with the dead ped's
+  position and move speed lent as the particle's position and direction for that frame - no guest memory of our own.
+  A burst, then a bleed for 3 s.
+- **SA's chances by weapon** (blades and shotguns high, pistols and SMGs near none), on lethal hits, shots on bodies down
+  and blasts (2 parts at most). Off by default; with the game's own gore setting off there is none.
+
+## 2026-10-31 - Jiggle physics on the chest and pelvis bones (the user's request)
+
+SA's Jolt mod jiggles breast and glute bones its adapted models have; VCS's peds have none (game-internals.md 12r).
+- **Bone-level, not vertex-level**: a per-vertex jiggle would rewrite each ped's skinned VU1 packets every frame. The
+  skinned draw takes each bone's matrix on its own, so springs on the chest (spine1) and pelvis bones' drawn matrices
+  move just the skin weighted to them - the parts that should bounce - without moving the arms, neck or thighs.
+- **The SA ini's numbers**: frequency, damping, max offset and angle per part, gravity scale, inward limit, the nearest
+  8 peds within 30 m, female only (ped type 5); Intensity 1.8 is the setting's 100 %. A spring is driven by its bone's
+  world acceleration, so walking, stopping, turning, getting hit and ragdolls all move it.
+- **Its own file and hooks** (src/game/vcs_jiggle.*, not Jolt: no physics engine is needed for two springs), chained
+  in the ped's render before Jolt's so that it rides on the ragdolls' poses too.
+- Off by default like the other enhancements; `VCS_JIGGLE_ALL=1` takes every ped (for tests).
+
+## 2026-10-31 - Jolt Physics: guns and cash on the ground, GTA IV style (the user's request)
+
+The user asked for physics on cash pickups and for weapon pickups as in the SA mod "GTA IV Pickups On The Ground" (CLEO
+scripts that lay pickups on the ground instead of floating and spinning; a replaced glow model; sounds; a key to
+swap a weapon whose slot is taken). game-internals.md 12m:
+- **The pickup's drawing taken over, not its logic**: the game spins and scales pickups in DoPickUpEffects /
+  DoMoneyEffects from the render, and nothing else moves the object. Hooking those two for guns (models 331 - 368)
+  and cash (type 8) leaves creation, collection, timeouts and respawns to the game; only where the object is drawn
+  changes, and the pickup's position is moved with it so collection happens where it lies.
+- **Each lands by physics, from where the game put it**, instead of a fixed lying pose per model: a Jolt box from the
+  model's own bounds tumbled about its length settles on a broad side - guns on their side, cash flat - on whatever is
+  there (kerbs, slopes, car roofs). A dead ped's drops are thrown out a little, so a body's gun and cash scatter.
+  Real size: the game's 1.84 x scale for guns goes with the spin.
+- **Short-lived bodies**: a prop leaves the physics once still for 0.5 s (or unseen for 3 s) and is drawn from its
+  last pose; at most 64 move at once (more keep the game's spinning look). The world's collision is put in around
+  moving props as around ragdolls, and vehicles there are boxes, so a car can knock one along.
+- **Game > Physics > Pickups on the ground** (off by default like the other enhancements; VCS_JOLT_PICKUPS), apart
+  from Ragdolls. Health, armour and other pickups keep the game's look. Not done: the swap key (taking a weapon whose
+  slot holds another only on a key press) and the mod's sounds.
+
 ## 2026-10-31 - Project2DFX: distant lights, stars, traffic, draw distance (the user's request)
 
 The user asked for ThirteenAG's Project2DFX for the PCSX2 fork (GTAVCS.PCSX2F.Project2DFX: LOD lights, more stars,
@@ -1071,3 +1224,16 @@ collar when looking away from the body (running backwards) - both the user's rep
   ruled out, so VR.asi was checked against `xr_test_runtime.dll` (VCS-mods `plugins/VR/test`, never installed): a
   minimal D3D11 runtime that simulates a head and composites what each eye would see into PNGs.
 - **Defaults**: off (Graphics > VR > VR); recentre F7 / Back + L3; cinema 4 m ahead, 5 m wide; HUD 1.5 m.
+
+## 2026-11-01 - Jolt Physics as a DLL mod: JoltPhysics.asi (the user's request)
+
+- **What moved**: the ragdolls and everything on them (bike falls, hit reactions, catch falls / blind fire, gore,
+  pickups on the ground), foot IK and jiggle physics - `src/game/vcs_jolt.*`, `vcs_footik.*`, `vcs_jiggle.*` and
+  `src/physics` - into VCS-mods `plugins/JoltPhysics` (spartaque12/VCS-mods), with its own vendored copy of Jolt 5.6.0.
+  vcs.exe no longer builds `src/physics` or links Jolt; `third_party/JoltPhysics` stays in the tree, unused.
+- **Unchanged behaviour**: same settings keys and rows (Game > Physics), same control commands (`jolt`, `footik`,
+  `jiggle`: the tools' checks run as before against an exe with the DLL in `scripts\`), same hook order - the mod's
+  VcsModInstall runs where the built-in install was (right after the mods' Install, CameraAim.asi first by name), free
+  aim's VcsModInstallLate still wraps its line of sight.
+- **An older vcs.exe** (ragdolls built in): the DLL notices in VcsModInstallLate that the exe's death hook wrapped its
+  own and makes all its hooks pass through (one log line) - never two sets of ragdolls.

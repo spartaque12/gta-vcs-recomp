@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Death ragdolls check (src/game/vcs_jolt.cpp, src/physics/ragdoll.cpp; docs/game-internals.md 12h): a ped is spawned
+"""Death ragdolls check (`VCS-mods plugins/JoltPhysics/src/jolt.cpp`, `VCS-mods plugins/JoltPhysics/src/physics/ragdoll.cpp`; docs/game-internals.md 12h): a ped is spawned
 in front of Vic and killed, and its ragdoll is followed as it falls and settles.
 
     python tools/ragdoll_check.py [OUT] [--port 47673]

@@ -4,7 +4,8 @@ Since 2026-10-31 vcs.exe loads mods built as separate DLLs, like an ASI loader f
 `build\scripts\` (or next to `vcs.exe`) and start the game. Without any, the game is vcs.exe's own. The mods themselves
 live in their own repository, [spartaque12/VCS-mods](https://github.com/spartaque12/VCS-mods); the first one is
 `CameraAim.asi` (first person on foot and in vehicles, free aim, manual drive-by, the car's glass, field of view), moved
-out of vcs.exe, and `Project2DFX.asi` (distant lights, stars, distant traffic, draw distance, flight ceiling). Which mod lives where: [MODS.md](MODS.md). Why: [DECISIONS.md](DECISIONS.md) (2026-10-31, mods as DLLs).
+out of vcs.exe, `JoltPhysics.asi` (ragdolls, hit reactions, gore, pickups, foot IK, jiggle; Jolt linked into the
+DLL, only its hooks and settings cross the API), and `Project2DFX.asi` (distant lights, stars, distant traffic, draw distance, flight ceiling). Which mod lives where: [MODS.md](MODS.md). Why: [DECISIONS.md](DECISIONS.md) (2026-10-31, mods as DLLs).
 
 ## For players
 
@@ -86,12 +87,10 @@ itself.
 sorted by name; DLLs without `VcsModApiVersion` / `VcsModRegister` - an ASI for another game - are skipped), the API
 table, and the exe's side of the coupling: `registerPlugins()` in main.cpp's settings registration (and
 `registerSlot("graphics")` later in it), `install()` /
-`installLate()` in `game/vcs_overrides.cpp` applyVcs around the ragdolls' install, `drawCallbacks()` in the UI hook,
+`installLate()` in `game/vcs_overrides.cpp` applyVcs, `drawCallbacks()` in the UI hook,
 `lookActive()` / `look()` in `game/vcs_input.cpp`, `registerHotkeySettings()` there and `pollHotkeys()` in
 `ui/trainer_menu.cpp`. A mod is never unloaded.
 
 ## Next
 
-- **Jolt Physics** (ragdolls, `src/game/vcs_jolt.cpp`, `src/physics`): a mod of its own once its work settles; it links
-  Jolt itself, so only its hooks and settings cross the API.
 - **The streamed-file override** (ModLoader-style `mods\stream\`) and the weapon pack's tools.

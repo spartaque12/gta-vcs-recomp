@@ -2160,13 +2160,15 @@ counterparts, from the generated code (not all checked at run time):
   0x200740.
 - **CPhysical::ApplyMoveSpeed = FUN_00348098** (no direct callers: through the vtable).
 - **CPed::SetDie = FUN_0020a3b8** (state 0x39), **SetDead = FUN_0020a818** (0x3A), both through SetPedState
-  (FUN_00219340); a knockdown FUN_0020b558 (state 0x33; unverified).
+  (FUN_00219340); the knockdown is **CPed::SetFall = FUN_002022f0** (state 0x2D), its get-up **SetGetUp =
+  FUN_00203240** (0x2E): 12l. (FUN_0020b558 sets state 0x33, not the fall.)
 - Bullet hits: FireInstantHit -> ProcessLineOfSight -> FUN_002c5320 (called once at 0x2C5138; likely the impact,
   unverified). **CExplosion::AddExplosion = FUN_002e1140** (from the ADD_EXPLOSION handler FUN_00182998; 22 callers).
 - CPopulation::Update FUN_00430148, entity removal FUN_00198408 (corpse despawn; partial).
-- Open: the CColModel layout and the world sectors' collision lists (for world collision in a physics engine); VU code
-  runs with round-toward-zero, so a native physics step needs the host rounding mode restored around it.
-- Milestone 1 (death ragdolls) is built on the step, the bones, ApplyMoveSpeed and SetDie, checked at run time: 12h.
+- The CColModel layout and the world sectors' collision lists: 12k. VU code runs with round-toward-zero, so a native
+  physics step needs the host rounding mode restored around it.
+- Milestone 1 (death ragdolls) is built on the step, the bones, ApplyMoveSpeed and SetDie, checked at run time: 12h;
+  milestone 2 (the world's collision) on the sectors and col models: 12k.
 
 ### 12g. Weapon models, their textures, streaming, reloading - the Immersive Weapons Pack port (2026-10-31)
 
@@ -2216,102 +2218,6 @@ on a model's load state, a weapon's clip and state) and by reading the chunks st
   calls **CWeapon::Reload FUN_002CDFB0** (clip = min(total, clip size), 0x2CE000) and state 0 when the time is up.
 - Checked: the Immersive Weapons Pack's Colt45 (SA DFF, 16.5k triangles, 9 textures at 128x128) converted by
   tools/weapon_convert.py (249 + 79 sectors) loads, draws in the hand and fires / reloads in a hidden run (build/iwp).
-
-
-### 12h. Death ragdolls - Jolt Physics, milestone 1 (2026-10-31)
-
-Found for `src/game/vcs_jolt.cpp` / `src/physics/ragdoll.cpp` with the rig on a copy of the user's card (the player's
-anim tree - from first person's status - dumped standing and running; spawned peds killed) and the generated code.
-- **RslTAnimTree +0x30, the node info**: 8 bytes a node - byte 0 the bone id, byte 1 its index, **byte 2 the flags (2
-  push, 1 pop the parent: RenderWare HAnim's)**, byte 3 (1 on the root) - and a word (0). The ids are SA-like: 0-6 root,
-  pelvis, spine, spine1, neck, head, head end; **31-35 the left arm, 21-25 the right arm, 41-43 the left leg, 51-53 the
-  right leg, 0xFF the toes**. The flags give **0 <- 1 pelvis <- 2 spine <- 3 spine1 <- 4 neck <- 5 head <- 6; the
-  clavicles (7, 12) hang off the neck, the thighs (17, 21) off the spine (2)**, each limb a chain (3ds Max Biped's
-  layout). Another copy of the same array follows it.
-- **Bone frames** (orthonormal, right-handed): bones 1-4 X up the spine, Y forward, Z left; the root (0) X forward, Y
-  left, Z up; a limb's X runs along it to its child; the clavicles' X outward. **An elbow or knee bends about the Z its
-  two bones share** (left on both arms, right on both legs) **by a negative angle**: knees -20 degrees standing, -80 and
-  -111 running; elbows -100 and -122 (worked out from the dumped matrices).
-- **Dying**: health (+0x4E4) set to 0 kills the ped in its next CPed::ProcessControl (VC's `health <= 1` -> SetDie):
-  state 0x39 at once, 0x3A about a second later. **CPed::SetDie** (FUN_0020a3b8, a0 the ped; nothing when the state is
-  already 0x39 / 0x3A) runs inside CWorld::Process, before FUN_00408c30. Vic's death (Wasted) too; about 10 s later the
-  game puts him at the hospital (a teleport; the same ped) with his state back to 1.
-- **CPhysical::ApplyMoveSpeed** (FUN_00348098): with either of the entity flags +0xE8 bits 62 / 63 it zeroes the move
-  speed (FUN_00356288), else position (+0x30) += move speed (+0x140) x ms_fTimeStep.
-- **A standing ped's position is ~1 m over its soles** (its toe bones at -0.98 / -0.99, its feet at -0.91): a ped spawned
-  on the road at z 11.10 had its toes at 10.11; Vic, 4 m away on the pavement, stood at 11.25.
-- **The ragdolls** (Game > Physics > Ragdolls, `VCS_JOLT`; DECISIONS.md): SetDie notes the ped and its move speed x 50
-  (m/s); at its next draw - its tree noted where FUN_0024e8d0 returns to 0x3C3280, then FUN_0020c310 at 0x200740 before
-  the skinned draw - a Jolt ragdoll is made from the bones just built: 11 bodies (hips on bone 2, chest 3, head 5, upper
-  arms 8 / 13, forearms 9 / 14 with the hands, thighs 17 / 21, calves 18 / 22 with the feet), swing-twist joints at the
-  waist, neck, shoulders and hips, hinges at the elbows and knees (-150 .. +3 degrees about their Z). From then on its 25
-  matrices are written there at every draw: the parts' bones from the bodies, the others carried with their parents as
-  at death. FUN_00408c30's before-hook steps the physics (ms_fTimeStep / 50 s) and moves the ped's x / y to its root
-  bone; ApplyMoveSpeed is not run for it. The ragdoll goes when the ped's pool slot is freed or reused, its state leaves
-  0x39 / 0x3A, or the game moves it by more than 2 m (Vic's respawn). Until the world's collision (milestone 2) each lands
-  on a ground of its own 1 m under the ped's position (or under its lowest bone).
-- Checked (`tools/ragdoll_check.py`, hidden): a ped killed standing still - the ragdoll made at its next draw, the
-  pelvis from 11.08 down to 10.16 (the hips down, the trunk still up), then the trunk over: lying at 10.23, 13 cm over
-  the road, still and asleep after ~4 s, the drawn pelvis the physics' own, the ped's position on the body; then Vic
-  killed: his ragdoll, his respawn at the hospital (-884, -470), the ragdoll gone. Eight peds killed at once: the step
-  0.49 ms on average while they fall (0.70 at most, 88 bodies awake), ~0.005 ms once asleep. The setting switched at
-  run time: off (the default) the game's own death, on the next death a ragdoll, off again the ragdoll removed. Street
-  peds of models 8, 26, 28, 43 and 64 (and the spawned 55) all have this skeleton; their corpses are deleted by the game
-  once Vic goes elsewhere (the ragdolls with them). The matrices' w lanes read 0 (bones 0-5 of six trees); the game
-  never writes them, so only the rows' xyz are taken or written. One ped was refused before refusals said why (a
-  stricter check on all 16 floats then): not seen again.
-- **The killing blow** (the user's videos: a shotgun victim only crumpled, cars drove through the bodies). **CPed::
-  InflictDamage = FUN_001d7940**(ped a0, attacker a1, weapon a2, damage f12, piece a3 - VC's 0 torso, 1 mid, 2 / 3 left /
-  right arm, 4 / 5 left / right leg, 6 head -, direction t0; t1 is stored and never read); VC's: it bumps the player's
-  shots-hit count (CPlayerInfo +0x154, 0x190 per player) for damage over 3 and calls SetDie. Found as the function
-  calling SetDie three times among SetDie's 12 callers (FUN_00203240, the other one also calling InflictDamage, is a
-  fall's landing: state 0x2E, the bike / quad / BMX under the ped). **The game knocks the ped back before
-  InflictDamage**: a shotgun victim had 5.6 m/s at its first pellet's call, a ped run down 5.2 - 13 m/s. A car's hit
-  comes as weapon 42 or 43 with the vehicle as attacker (piece 1 or 6).
-- **CColModel**: **model info +0x14**; +0x00 the bounding sphere's centre, +0x0C its radius, **+0x10 the box's min,
-  +0x20 its max** (16-byte vectors), in the model's frame (found by following model info pointers to sphere-and-box
-  floats in a run): the Sentinel (211) (-1.18, -3.11, -0.68) .. (1.18, 2.69, 0.75), radius 2.82; peds (-0.35, -0.35,
-  -1.0) .. (0.35, 0.35, 0.9), radius 1.25 - their position 1 m over the soles again.
-- **The blow's push** (DECISIONS.md): InflictDamage's arguments are kept per ped (the first of a frame's burst: a
-  shotgun's later pellets come after the knock-back); when SetDie follows, the ragdoll gets, from a ped attacker, a
-  push from its side on the part hit (kg m/s by weapon, after SA's mod's DeathPush; shotguns over the trunk, x 1.6 at
-  point blank down to x 1 at 10 m) with the victim's own speed capped at 2 m/s (the game's knock-back left out); from a
-  vehicle, its speed at the blow to the legs (lifted), less to the trunk and head. Vehicles within 15 m of a ragdoll
-  are kinematic bodies: the col model's box raised 0.25 m off the ground; a car (+0x354 = 0) as its lower body to 55% of
-  the height plus the cabin, set back a third of the length from the front.
-- Checked (`tools/ragdoll_check.py`): a Shotgun kill at 4 m throws the body 2.3 - 2.5 m back, airborne at 0.25 s
-  (before: it crumpled where it stood); Vic's Sentinel at 11.8 m/s into a ped - the body over the bonnet against the
-  windscreen, legs up, for ~1 s while he keeps the throttle, then off the front as the car slows, 0.9 m ahead of the
-  bumper (before: the car drove through it). Right after the Wasted respawn the game ignores the throttle for a while
-  (the check runs the car before Vic's death).
-- **Shots on a body already down** (the user's request: corpse reactions). **CWeapon::DoBulletImpact = FUN_002c6460**
-  (weapon a0 - its type at +4 -, shooter a1, victim a2, source* a3, end* t0, **colpoint* t1**: the point at +0, the piece
-  hit at +0x33, as InflictDamage's piece), called from FireInstantHit (0x2C51FC) and FUN_002cb1d0 (0x2CB4C4) only. The
-  Shotgun's pellets (FUN_002c7c28) have their own: ProcessLineOfSight (start *s7, end s2, colpoint sp+0x30, the entity
-  out at sp+0x150, weapon sp+0x154; the two bytes cleared after it are VC's bIncludeDeadPeds pair), then for a ped not
-  dying / dead ApplyMoveForce (FUN_00347D20: the knock-back, ~6 x the line + 5 up) and InflictDamage; for one dying or
-  dead (0x2C85E0 -> 0x2C8914), with the gore flag **CGame::nastyGame 0x489F80** (1), **CEntity::GetIsOnScreen =
-  FUN_003c4318** (its col sphere against the view) then 8 blood particles (FUN_001E9040) and, dead, a hit-the-floor
-  animation (FUN_00178828 on the clump) - no physics. **The game's own collision for a dead ped is not where its ragdoll
-  lies**: Colt45 shots aimed at a lying body's hips (traced at DoBulletImpact) hit the road under them (victim a building
-  entity), a Shotgun's pellets met it now and then. So bullets are cast against the ragdolls themselves: a before-hook
-  on **CWeapon::ProcessLineOfSight (FUN_002d0870; start* a0, end* a1, ..., weapon t0, shooter t1)**, every bullet's line
-  (FireInstantHit's, each pellet's, drive-bys'), Jolt's ray against the ragdoll parts, the part met pushed at that
-  point (kg m/s per bullet by weapon, after SA's PhysicsForce x 2). Free aim's hook on the same function is installed
-  after Jolt's, so it wraps it and the line seen is the camera's.
-- **Blasts**: **CExplosion::AddExplosion = FUN_002e1140**(exploding entity a0, culprit a1, type a2 - 12 types through a
-  jump table, VC's radius / power pairs: grenade and car 9 / 300, rocket 10 / 300, heli 6 / 300, mine 10 / 150, ... -,
-  position* a3, lifetime t0) calls **CWorld::TriggerExplosion = FUN_00192760**(position* a0, culprit a1, flag a2, a3,
-  **radius f12 = the explosion's +0x20, power f13 = its +0x40**), also called twice from CExplosion::Update (0x2E2494,
-  0x2E3010). It runs the sector lists through FUN_001929a8 (3 calls), which pushes and damages (InflictDamage with the
-  blast's weapon: a grenade's 12, else 0x31) - the push again before the damage (a grenade's victim had 11 m/s at
-  SetDie). The script command **ADD_EXPLOSION is opcode 0x013C** (x, y, z, type; handler FUN_00182998, found in the
-  opcode table at 0x4BEAF0 by its handler).
-- Checked (`tools/ragdoll_check.py`, a second game with first person and free aim to aim down at a body): Colt45 shots
-  at a lying body hit its ragdoll (2 of 3), a Shotgun blast put 3 pellets on it and shoved its pelvis 0.24 m; an
-  ADD_EXPLOSION of type 0 (a grenade's) 2 m from a lying body threw it 7.3 m, and the ped 2 m on its other side died
-  and was thrown by the blast's own throw (the game's 11 m/s left out).
-
 - **The streaming heap** is the CMemoryHeap at **0x51F420** (FUN_003C6478 allocates stream buffers from it through
   FUN_002BC730): +4 the out-of-memory callback (0x21C300), **+8 the free blocks** (a tree: +0 size, +8 / +0xC children;
   FUN_002BBB00 = the largest free block), **+0x14 bytes allocated** - 5.4 - 5.5 MB in play, with 0.1 - 0.3 MB free in
@@ -2375,7 +2281,7 @@ Found by reading the 'mina' chunks from the disc (CStreaming ids 8392 + the bloc
 
 ### 12h. Death ragdolls - Jolt Physics, milestone 1 (2026-10-31)
 
-Found for `src/game/vcs_jolt.cpp` / `src/physics/ragdoll.cpp` with the rig on a copy of the user's card (the player's
+Found for `VCS-mods plugins/JoltPhysics/src/jolt.cpp` / `VCS-mods plugins/JoltPhysics/src/physics/ragdoll.cpp` with the rig on a copy of the user's card (the player's
 anim tree - from first person's status - dumped standing and running; spawned peds killed) and the generated code.
 - **RslTAnimTree +0x30, the node info**: 8 bytes a node - byte 0 the bone id, byte 1 its index, **byte 2 the flags (2
   push, 1 pop the parent: RenderWare HAnim's)**, byte 3 (1 on the root) - and a word (0). The ids are SA-like: 0-6 root,
@@ -2403,8 +2309,9 @@ anim tree - from first person's status - dumped standing and running; spawned pe
   matrices are written there at every draw: the parts' bones from the bodies, the others carried with their parents as
   at death. FUN_00408c30's before-hook steps the physics (ms_fTimeStep / 50 s) and moves the ped's x / y to its root
   bone; ApplyMoveSpeed is not run for it. The ragdoll goes when the ped's pool slot is freed or reused, its state leaves
-  0x39 / 0x3A, or the game moves it by more than 2 m (Vic's respawn). Until the world's collision (milestone 2) each lands
-  on a ground of its own 1 m under the ped's position (or under its lowest bone).
+  0x39 / 0x3A, or the game moves it by more than 2 m (Vic's respawn). Milestone 1 landed each on a ground of its own 1 m
+  under the ped's position (or under its lowest bone); since milestone 2 that is only where the world has no collision
+  under it (12k).
 - Checked (`tools/ragdoll_check.py`, hidden): a ped killed standing still - the ragdoll made at its next draw, the
   pelvis from 11.08 down to 10.16 (the hips down, the trunk still up), then the trunk over: lying at 10.23, 13 cm over
   the road, still and asleep after ~4 s, the drawn pelvis the physics' own, the ped's position on the body; then Vic
@@ -2419,8 +2326,8 @@ anim tree - from first person's status - dumped standing and running; spawned pe
   InflictDamage = FUN_001d7940**(ped a0, attacker a1, weapon a2, damage f12, piece a3 - VC's 0 torso, 1 mid, 2 / 3 left /
   right arm, 4 / 5 left / right leg, 6 head -, direction t0; t1 is stored and never read); VC's: it bumps the player's
   shots-hit count (CPlayerInfo +0x154, 0x190 per player) for damage over 3 and calls SetDie. Found as the function
-  calling SetDie three times among SetDie's 12 callers (FUN_00203240, the other one also calling InflictDamage, is a
-  fall's landing: state 0x2E, the bike / quad / BMX under the ped). **The game knocks the ped back before
+  calling SetDie three times among SetDie's 12 callers (FUN_00203240, the other one also calling InflictDamage, is
+  CPed::SetGetUp: state 0x2E, a car - not a bike - on top of the ped; 12l). **The game knocks the ped back before
   InflictDamage**: a shotgun victim had 5.6 m/s at its first pellet's call, a ped run down 5.2 - 13 m/s. A car's hit
   comes as weapon 42 or 43 with the vehicle as attacker (piece 1 or 6).
 - **CColModel**: **model info +0x14**; +0x00 the bounding sphere's centre, +0x0C its radius, **+0x10 the box's min,
@@ -2500,6 +2407,171 @@ Found with RAM dumps of a hidden run (the rig's `dump`) and the models read from
   textures with broad half-transparent areas (VC PC textures box-filtered to a quarter) showed the sky through as pale
   patches; with alpha 0 / 128 only the bilinear edge band between texels is left half transparent.
 
+### 12k. The world's collision - Jolt Physics, milestone 2 (2026-10-31)
+
+Found in the generated code - CWorld::TriggerExplosion (FUN_00192760), CWorld::ClearScanCodes (FUN_001943b8),
+CWorld::ProcessLineOfSight (FUN_001908c0) with its sector (FUN_001918e8) and list (FUN_00191c00) passes,
+CCollision::ProcessLineOfSight (FUN_002b7e88) and its triangle range (FUN_002b6ae0) - and read back with the rig: the
+col triangle under Vic standing in the street at (-700, -500) lies 1.03 m under his position, as a ped's soles do (12h).
+- **CWorld's sectors**: `*0x486464` -> 50 x 50 sectors of 80 m - x index = x / 80 + 30, y index = y / 80 + 25 (so x
+  -2400..1600, y -2000..2000), clamped to 0..49 -, 0x38 bytes each (FUN_00472698(x, y) = base + (y x 50 + x) x 0x38):
+  14 CPtrLists (the first node; a node is {item, prev, next}). **Buildings +0x00 / +0x04 and +0x14 / +0x18** (the
+  building pass of ProcessLineOfSight takes all four), **objects +0x0C / +0x10**, vehicles +0x1C / +0x20, peds +0x24 /
+  +0x28, dummies +0x30 / +0x34; +0x08 a list ProcessLineOfSight reads under a flag of its own; +0x2C holds one
+  world-sized entity (model 318: one box, radius 2000) in every sector, in no collision pass. ClearScanCodes zeroes the
+  u16 scan code at entity +0x54 (CWorld::ms_nCurrentScanCode, u16 at `0x486468`) in the first list of each kind.
+  CPhysical::ProcessCollisionSectorList (FUN_0034FD60) walks the lists +0x00 .. +0x28 of each sector the entity is in
+  (its entry info list at +0xE4: {list, node, sector +8, prev, next +0x10}).
+- **CEntity**: +0x00 its matrix (rows right, forward, up, position; 16 bytes each), **+0x48 the flags** (64-bit: bits
+  1-3 the type - 1 building, 2 vehicle, 3 ped, 4 object, 6 in the dummy lists -, **bit 9 uses collision**), +0x54 the
+  scan code, +0x56 the model.
+- **CColModel** past its bounds (12h): **+0x30 u16 boxes, +0x32 u16 triangles, +0x34 u8 spheres**, +0x35 u8 (lines? 0
+  in all seen), +0x36 u8 triangle sections, +0x37 u8 (25 on the level's buildings, 0 on the others: their col store
+  slot?), **+0x38 spheres** (0x20 bytes: centre, radius; the surface at +0x10), +0x3C lines, **+0x40 boxes** (0x30: min,
+  max; the surface at +0x20), +0x44 sections (0x30: a box, u16 first and last triangle at +0x20 / +0x22 - with two or
+  more ProcessLineOfSight tests each box before its range), **+0x48 vertices** (int16 xyz x 1/128 - VC's compressed
+  vectors, the VU0 collision programs' 7-bit fixed point, 6c), **+0x4C triangles** (8 bytes: three u16 **byte offsets**
+  into the vertices - 6 bytes a vertex -, the surface, a byte), +0x50 the triangle planes (made on demand and cached by
+  CalculateTrianglePlanes FUN_00128db0, 10 bytes each). There is no vertex count: the highest offset gives it. **The
+  front face is clockwise**: (b - a) x (c - a) points down on 305 of 333 and 654 of 659 flat triangles around two
+  spots (VC's CColTrianglePlane::Set takes (c - a) x (b - a)).
+- What is there: the level's buildings near Vic have their triangles (his sector: 8 buildings with collision, 906
+  triangles, 33 boxes, no spheres); far buildings and LOD models keep their bounds with no primitives; small street
+  furniture can be one box (model 485: 0.6 x 0.4 x 1.8 m). Objects' bounds can be huge while their primitives are not:
+  a palm (model 545) has a 30 x 27 x 37 m box around its crown and one 1.4 x 1.5 x 28 m box, its trunk.
+- **The ragdolls' world** (Game > Physics > Ragdolls; DECISIONS.md): each game step the buildings (static) and objects
+  (kinematic, moved with the game's matrix) whose col model's bounding sphere comes within 10 m of a ragdoll's hips are
+  bodies in Jolt; each col model is made into one shape (a MeshShape of its triangles, wound counter-clockwise for Jolt,
+  with its boxes and spheres) kept while its counts, arrays and first vertices stay the same, dropped after 10 s
+  unused. A ragdoll gets a ground of its own only when the world has no surface within 50 m under the ped (collision
+  not streamed in); the ped's height follows its body (1 m over the lowest bone) once they differ by 0.5 m; a body
+  60 m under where it started (nothing left under it) is frozen. Corpse shots stop at the static world in front of a
+  body. `VCS_JOLT_WORLD=0`: milestone 1's grounds only.
+- Checked (`tools/ragdoll_world_check.py`, Vic on the street at (-650, -440) east of a flat roof 5.2 m up whose edge
+  runs at x -666.9): a ped on the roof 0.8 m from its edge, a grenade's ADD_EXPLOSION 5 m behind it - the ragdoll made
+  on the world's collision (9 buildings and 9 shapes in the physics), over the edge, its pelvis at 10.15 on the street
+  (9.78), the ped's height 11.10; a ped 1 m in front of the wall, the blast 3.5 m in front of it - thrown 0.75 m back
+  against the wall, it stays in front of it; the step at most 0.26 ms. With a stronger throw (the blast 3.5 m behind)
+  the body came to rest 3 m over the street 6.7 m out, where no building or object has collision - most likely on a
+  vehicle's roof in the traffic (vehicles are boxes in the physics: 12h; not checked then). The milestone 1 check
+  (`tools/ragdoll_check.py`) passes with the world in (its bodies land on the road's own triangles: ground 10.02).
+
+### 12l. Bike falls - knockdown ragdolls (2026-10-31)
+
+Found in the generated code (SetPedState's callers by the state they set, CPed::SetFall's callers) and checked with the
+rig (`tools/ragdoll_bike_check.py`).
+- **Ped states** (VCS's numbers: near VC's, but not one shift - FALL / GETUP are VC's + 3, DRIVING + 5): **0x2D
+  PED_FALL, 0x2E PED_GETUP**, 0x37 PED_DRIVING (a rider on its bike too), 0x39 / 0x3A DIE / DEAD.
+- **CPed::SetFall = FUN_002022f0**(ped, extra ms a1 or -1, animation a2, even out of control a3; 19 callers - blasts,
+  bullet impacts, the shotgun's pellets...): state 0x2D, the fall animation, **+0x6C4 m_getUpTimer** = CTimer ms
+  (`0x4CD104`) + the animation's length + the extra (+ up to a random second for peds; -1: never), a flag in +0x1D0.
+  **CPed::Fall = FUN_00202808** (the state's handler) calls SetGetUp once that time is not -1 and has passed and the
+  ped stands (+0x1C8 bit 0) or +0xE8 bit 40 is set. **CPed::SetGetUp = FUN_00203240** (state 0x2E; InflictDamage
+  weapon RUNOVERBYCAR on a ped with a car on top of it, SetDie on one with no health) - not "a fall's landing" (12h).
+- **CBike::KnockOffRider = FUN_003f0a58**(bike a0, weapon a1, direction a2, rider a3, get back on t0): the rider leaves
+  the bike (its vehicle pointer +0x480 is 0 after) with the bike's speed and a throw (ApplyMoveForce, FUN_00347d20), then
+  SetFall(rider, 1000, animation) - or SetDie when it has no health left - and its standing flag (+0x1C8 bit 0)
+  cleared. A bike's driver is at +0x384 (state 0x37 while on it); FUN_003f3968 gives a passenger. 14 callers, among them:
+  **the bike's collision damage** (`fn_00336448`, VC's CBike::VehicleDamage): damage = impulse x 800 / mass (x 0.65 for
+  a bike not the player's), times a direction factor - |normal . forward| x 0.6 (up to 7.6 head on) + |normal . right|
+  x 0.45 + up / down terms -; over 75 the driver and passenger get InflictDamage (weapon 42) and are thrown off with
+  weapon 42; a tyre bursting at speed (FUN_00344d28, 42); **a ped's own hit by a vehicle** (FUN_001db5f8 / FUN_001dc3e8:
+  weapon 47, direction 2); **CPed::InflictDamage** for a rider of a bike or boat brought to 1 health or less (health 0,
+  the weapon's own number: the rider dies off the bike); jetskis turned over (FUN_001a4b20 / FUN_001a4c50, 42).
+- Checked: Vic on a PCJ-600 (212) at full throttle into a wall - thrown off (weapon 42) at (-12.6, 1.4, 6.4) m/s (another
+  run 16.7 m/s, high enough to land him on the terrace over the wall); a ped on a parked PCJ-600 hit head on by a
+  Sentinel at 13 m/s - weapon 47, thrown at (-15.1, 2.1, 3.7) m/s; the same hit side on did not throw it (the factor
+  0.45); a rider shot with a Shotgun from 4 m - thrown off and killed (SetDie from inside KnockOffRider).
+- **The knockdown ragdolls** (Game > Physics > Bike falls with Ragdolls on; DECISIONS.md): KnockOffRider is hooked
+  (before) for the rider; at its next draw in state 0x2D it gets a ragdoll from its pose with its speed then (the
+  bike's and the throw), its bike left out of the physics while it is down (it starts astride it). While the body
+  moves, m_getUpTimer is held at -1 and the ped's move speed at 0 (ApplyMoveSpeed is not run for it: gravity would pile
+  up); once its bodies have slept - or its hips stayed within 3 cm (a body pressed into a wall jitters awake) - for
+  0.4 s, and it has been down 2.5 s (8 s at the latest), the ped is put on the body - x / y on the root bone, z 1 m
+  over the lowest bone, its heading along the body (feet first on its back, head first on its front) -, its
+  m_getUpTimer set to now: CPed::Fall gets it up (0x2E, then 1). The body's last pose is drawn until the get-up starts,
+  then eased into it over 0.35 s (rotations along the shortest arc). A rider that dies while down becomes a dead
+  ragdoll; one killed in the throw goes through SetDie (noted although its vehicle pointer is still set then).
+- Checked (`tools/ragdoll_bike_check.py`): Vic's crash - knockdown ragdoll, the body against the wall and down onto the
+  street, still and up after 3.9 s (0x2E, then 1), health 98; the ped hit by the Sentinel - onto the median wall's top,
+  up after 3.4 s on it; the rider shot dead - a dead ragdoll; the death (`tools/ragdoll_check.py`) and world
+  (`tools/ragdoll_world_check.py`) checks pass with the parts' swept collision (Jolt's LinearCast, against tunnelling
+  through single-triangle walls at bike speeds).
+
+### 12m. Pickups - guns and cash on the ground (2026-10-31)
+
+Found in the generated code (CPed::SetDead's callees) and with the rig (the pickup array dumped after a kill, write
+watches on pickup objects' matrices).
+- **CPickups' array at `0x4EA740`**: 336 pickups of 0x40 bytes (0x140 regular, the last 16 for money): **+0x00 the
+  position** (collection is measured from it; a respawning pickup is made there again), **+0x20 its object** (a
+  CObject, type 4, drawn with the pickup's model), +0x2C the quantity (ammo, dollars), +0x30 a time, **+0x34 u16 the
+  model**, +0x36 u16 an index, **+0x38 u8 the type** - VC's: 0 none, 3 ONCE, 4 ONCE_TIMEOUT (a dead ped's gun), **8
+  MONEY**, 11 and others for the map's -, +0x3C 0xFF.
+- **CPickups::GenerateNewOne = FUN_001ddb38**(position* a0, model a1, type a2, quantity a3, ..., t1): the first free
+  slot (type 9 and a flag take the 16 from the end); FUN_001dde40 the weapon-type version, 9 callers in all.
+- **CPickups::CreateSomeMoney = FUN_001e17f0**(position* a0, amount a1): up to 4 piles (a pile per $30, at least 1)
+  within 1.5 m, each GenerateNewOne(model 437, type 8, its share). **CPed::CreateDeadPedMoney = FUN_001e1700** (from
+  CPed::SetDead FUN_0020a818): nothing with CGame::nastyGame (`0x489F80`) off, for models 8 - 13, 0x61, 0x62, 0x77
+  (cops and the like), **for a mission ped (+0x8F4 = 2) unless +0x1D0 bit 22 (money given by the script)**, for a ped
+  in a vehicle, or with **its cash (u16 +0x77E)** under $10; else CreateSomeMoney and the cash zeroed. FUN_001e1968 is
+  the weapon drop beside it.
+- **The pickups' look is drawn, not updated**: the render's FUN_003c35a8 calls **CPickups::DoPickUpEffects =
+  FUN_001df618**(object) - the spin about z with a scale (a gun x 1.84), glow, coronas - and **CPickups::
+  DoMoneyEffects = FUN_001e0e08**(object) for cash (its spin). Nothing else writes a pickup object's matrix after
+  GenerateNewOne placed it (through FUN_00472688, return address 0x1DE2B8).
+- **Models**: weapons 331 - 368 (12g); cash 437 (box 0.20 x 0.08 x 0.08 m, a col model of one sphere); the guns' col
+  models are a generic half-metre cube without primitives, their sizes come from the geometry: the 'ldm' chunk at model
+  info +0xC, its RslElement at +0x20, the element's geometry at +0x14, its PS2 part (+0x20) with **int16 bounds at
+  +0x1C / +0x22, scaled by the floats at +0x28 around +0x34** - the Colt45 0.25 x 0.05 x 0.20 m, the Shotgun 1.06 x
+  0.16 x 0.35, the M4 1.08 x 0.15 x 0.34: **barrels along x, thin along y**.
+- **Pickups on the ground** (Game > Physics > Pickups on the ground; DECISIONS.md): both effects functions are hooked
+  (before): a gun's or cash's object gets a prop the first time it is drawn - a Jolt box from those bounds, dropped
+  from where the game put it with a tumble about its length (a dead ped's thrown out 0.5 - 1.5 m/s and up 1 - 2 m/s) -
+  and from then on is drawn where its prop lies at unit scale, the game's spin, glow and coronas left out; the
+  pickup's position follows it, 0.6 m over it (about the game's own height). A prop still for 0.5 s (or not drawn for
+  3 s) leaves the physics and stays put; one whose pickup is gone (picked up, timed out) goes.
+- Checked (`tools/pickups_check.py`): a ped with a Colt45 and $100 killed at (-700, -500) - the gun and four piles
+  became props, came to rest on the road on a side at unit scale and stayed still, their pickup positions over them;
+  walking onto the cash collected it ($50 -> $155); the map's Ruger pickup (334) at (-893.6, -717.9) dropped from 11.10
+  to 10.19, on the ground.
+
+### 12n. Hit reactions - GTA IV / Euphoria style active ragdolls (2026-10-31)
+
+After SA's Jolt Physics mod's `[ActiveRagdoll]` (its ASI knocks peds down from the game's KO_SHOT_FRONT_0..3 /
+KO_SHOT_BACK_0 / KO_SHOT_STOM animations, with "balance", "catchFall" and arm-grab behaviours; its ini: Knockdowns,
+CatchFall, MuscleStrength, StanceAssist, DownRelaxation). Nothing new in the game was needed: CPed::InflictDamage
+(12h) gives the ped, attacker, weapon and piece hit, the draw hooks the animated bones, and a hit that knocks a ped down
+leaves it in PED_FALL (0x2D, 12l).
+- **A hit reaction** (Game > Physics > Hit reactions, with Ragdolls on; DECISIONS.md): at the next draw of a ped hit and
+  not killed (not in a vehicle), an active ragdoll from its animated pose - its hips kinematic, moved each step to the
+  animation's hips, so the game keeps walking, running, aiming it; every joint's motor (Jolt swing-twist / hinge
+  motors, position mode, 8 Hz) pulls toward the animation's pose. The blow's push (the killing push of 12h, 0.8 of it,
+  from the attacker's side on the part hit - head, chest, hips, an arm, a leg) lands on that part; the muscles start
+  at 0.6 and rise to 1.0. Drawn: the physics' pose for 0.2 s, then eased back into the animation by 0.9 s. Another hit
+  meanwhile pushes it again; a death ends it (the death ragdoll follows from the next draw); a hit that knocks the ped
+  down makes a knockdown ragdoll instead (12l's: held down, then up with the game's get-up), pushed the same way.
+  Vic reacts to hits too. Drawn never more than 0.2 m off the animation, and faded out within 0.15 s once the
+  animation's hips run faster than 3 m/s (a ped sprinting off once hit: its limbs' muscles cannot keep up, and the body
+  trailed behind its hips - the user's report).
+- **Clutching the wound** (SA's mod's "LeftArmGrab / RightArmGrab"): with the reaction, unless the ped is Vic or the hit
+  is the head, a hand reaches for the wound - a point on the bone hit (VC's piece: 0 spine1 (bone 3), 1 the spine (2),
+  2 / 3 the upper arms (8 / 13), 4 / 5 the thighs (17 / 21)) on the shooter's side, kept in that bone's frame so it
+  follows the body: the other arm for an arm, the same side's for a leg, the nearer shoulder's for the trunk. Two-bone
+  IK on the drawn pose (upper arm, forearm, hand and fingers turned about the shoulder and elbow, the elbow kept on the
+  side it bends to), eased in over 0.25 s, held, eased out by 1.6 s; the reaction lasts as long. Kept when the ped runs
+  off holding it (civilians sprint within ~0.2 s of a hit: none would show otherwise); none started while running.
+- **Stumbling** (Euphoria's stagger): a push of 85 kg m/s or more (a shotgun's, close rifles') or a third hit within
+  1.5 s moves the ped 0.45 - 1.2 m along the push (push / 110 m), eased out over 0.5 - 0.9 s, its position shifted
+  each step - its state, AI and animation left alone, the reaction's hips following - and stopped short of the world
+  (a ray 0.35 m ahead against the world's bodies and vehicles; a reacting ped's own kinematic hips left out of such
+  rays by their user data); 1 - 3 steps drawn in turn - the stepping leg swung 0.45 rad along the push about the hip,
+  its knee bent 0.7 rad, a sine over the step - with the reaction's lean of the trunk. Not for Vic.
+- Checked (`tools/hit_reactions_check.py`, 3 runs): Colt45 hits on a ped with 200 health - a reaction each, its bones
+  drawn up to 0.33 m off the animation, the pelvis with the ped, over within 1.8 s, the ped alive; a ped knocked down
+  by a second hit is a knockdown ragdoll and gets up; a Shotgun from 2.5 m knocks down or kills as a ragdoll. With the extras (3 runs more): the hand held on the wound
+  (IK exactly on it: 0.00 m), three quick pistol hits on a fresh ped stumble it 0.51 m, still on its feet. Without
+  the drawn-weight the hands lag up to ~1 m behind a ped that turns to flee late in the reaction (drawn at < 0.5 weight).
+
 ### 12o. Game functions several mods hook - their order, for mods as DLLs (2026-10-31)
 
 Found while moving the camera mods into CameraAim.asi (docs/MODDING.md), from every `replaceFunction` in `src/`: four
@@ -2508,13 +2580,105 @@ in at two points of `applyVcs` for this reason (VcsModInstall, VcsModInstallLate
 | Function | Hooked by, outermost first | Why the order |
 |---|---|---|
 | FUN_002A2ED0 CCam::ProcessSpecialHeightRoutines | first person (mod), the free camera (exe) | the free camera, installed first, is the original first person calls while it flies |
-| FUN_0024E8D0 an anim tree's bones (ra 0x3C3280) | ragdolls, first person (mod) | both only note the tree; kept in the order of the next row (first person in before the ragdolls: VcsModInstall) |
+| FUN_0024E8D0 an anim tree's bones (ra 0x3C3280) | ragdolls, first person (mod) | both only note the tree; kept in the order of the next row (first person in before the ragdolls: both VcsModInstall, CameraAim.asi before JoltPhysics.asi by name) |
 | FUN_0020C310 between the bones and the ped's draw (ra 0x200740) | ragdolls, first person (mod) | the same: first person's head collapse runs on the bones the ragdoll left |
 | FUN_002D0870 CWeapon::ProcessLineOfSight | free aim (mod), ragdolls | free aim puts the shot on the camera's line first, so the ragdolls' bullet test sees that line (VcsModInstallLate) |
 Checked with the mod: hidden runs on a copy of the card (port 47690) - first person on foot and in car 211 (glass
 hidden, `carglass` hidden = the car), free aim's shoulder camera with the crosshair drawn by the DLL into the exe's
 Dear ImGui context, a pistol aimed by the mouse taking a ped from 100 to 35 health; without the DLL the rows, the hotkey
 row and the `firstperson` command are gone and the game plays as v0.0.1.
+
+### 12s. Catching falls and firing back from the ground (2026-10-31)
+
+After SA's Jolt Physics mod's CatchFall / KnockdownGunFire. **CWeapon::Fire = FUN_002c0f98**(weapon a0 - the ped's
+current one: ped +0x574 + the byte at +0x789 x 0x1C -, shooter a1, source* a2): with no source (0) the muzzle is the
+shooter's position + its matrix x (0, 0, 0.6), and the shot goes along the ped's heading (its callers: the peds' fire
+functions FUN_001d26c8, FUN_00216768, FUN_002168e8, FUN_00233c80 / FUN_00233ff0, each passing a hand position from
+FUN_00175338 on the stack).
+- **Catching the fall** (Game > Physics > Catch falls): a knockdown ragdoll's (12l) arms - the shoulders' swing-twist
+  motors turning each upper arm along a direction, the elbows' hinges straight - reach toward the ground the body falls
+  to (its hips' way down, forward or back as it goes, and down), until its hips are 0.35 m over the ground under them
+  or 1.5 s, then go limp.
+- **Firing back** (Game > Physics > Fire back from the ground): a ped knocked down by a ped's hit, a gun (types 19 - 37)
+  with rounds in hand, not the player: 0.5 s after landing, a shot every 0.35 s, 4 at most, while its shooter lives.
+  The shot is the game's own: in the ApplyMoveSpeed hook (the game calls it for the ped each frame; a ragdolled ped's
+  is skipped anyway) a tail call to CWeapon::Fire(its weapon, it, 0) back to ApplyMoveSpeed's caller, the ped turned
+  to its shooter and moved for that frame so that the muzzle (0.6 m up) is its right hand (the next step puts it back
+  on its body). Ammo, tracer, sound, damage and the shooter's reaction are the game's.
+- Checked (`tools/blindfire_check.py`, 3 runs): a ped with a Colt45 and 500 health shotgunned from 2.5 m - knocked down
+  at the first try, its arms braced, 4 blind shots (clip 17 -> 13), Vic hit (health 100 -> 67 / 83 / 92), up again.
+
+### 12p. Dismemberment - stumps and blood (2026-10-31)
+
+After SA's Jolt Physics mod's [Dismemberment] (its JoltPhysics.dat: SeverChance - a lethal hit on a limb takes it
+off -, SeverPower, HeadBurst - a head hit destroys the head; ExplosionChance 0.6 a limb, 2 a body at most).
+- **CParticle::AddParticle = FUN_001e9040**(type a0, position* a1, direction* a2, entity a3, size f12, t0 - t3): the
+  shotgun's pellet loop (FUN_002c7c28) sprays 8 of **type 7, blood** on a body down (0.3 m/s-ish directions: units per
+  1/50 s). **CGame::nastyGame (`0x489F80`)** off: no gore.
+- **A part taken off** (Game > Physics > Dismemberment, with Ragdolls on; DECISIONS.md): a lethal hit on a limb (VC's
+  pieces 2 - 5: the arm / leg whole or its lower half at random) or the head (piece 6) by the weapon's chance (SA's
+  columns mapped onto VCS's types: blades 0.35 - 1, shotguns 0.65 - 0.75 and heads 1, Python 0.35, rifles 0.2 - 0.6,
+  pistols and SMGs 0.01 - 0.02), a shot on a body already down by the same chance on the part it met (Jolt's ray), a
+  blast 0.6 x nearness a limb (half that the head), 2 at most. The part's bones (and those below them) are drawn
+  collapsed onto the joint they hang from - rows 0, position the joint -, so the skin weighted to them shrinks into a
+  stump at the joint; its ragdoll bodies become sensors (they meet nothing; Jolt keeps them on their joints). Blood: a
+  burst of 14 drops (30 for a head) one a frame, then one every 45 ms for 3 s, each the game's AddParticle(blood) from
+  the stump outward - a tail call from ApplyMoveSpeed as 12o's shots, the dead ped's position (+0x30) and move speed
+  (+0x140) lent as the vectors for that frame (the game calls ApplyMoveSpeed for dead peds too: the drops counted).
+- **Not done: the loose limb.** The ped is one skinned mesh drawn once by the game; a second copy of the part (SA's
+  DetachedMesh: its own models) would need a draw of our own or new models, so a severed part is gone, not flying.
+- Checked (`tools/gore_check.py`): a grenade-sized ADD_EXPLOSION 1.5 m from a ped and another 1 m from its body - 4
+  parts off (both upper arms, a thigh, a calf), all 12 of their bones drawn collapsed, 98 blood drops in 2.5 s and
+  still coming; with the setting off, none. Head shots by a sniper rifle were not tried (no aimed shot in the rig
+  without the camera mod); hit reactions and bike falls still pass.
+
+### 12q. Foot IK - feet on the ground on slopes and stairs (2026-10-31)
+
+After SA's Jolt Physics mod's [FootIK] (Enabled, AdaptNpcs, NpcRange 25, MaxOffset 0.45, Smoothing 0.4, SlopeAlign,
+AlignStrength 0.7). Nothing new in the game was needed: the ground is the col triangles of 12k, the bones those of 12h
+(thigh 17 / 21, calf 18 / 22, foot 19 / 23, toe 20 / 24; a limb's X along it), a standing ped's soles 1 m under its
+position (12h), its standing flag +0x1C8 bit 0 (12l).
+- **The ground under a foot** (`VCS-mods plugins/JoltPhysics/src/footik.cpp`): in the sector under the ankle, the buildings' and objects'
+  col models (lists +0x00 / +0x04 / +0x14 / +0x18 / +0x0C / +0x10, uses-collision entities) - their triangles, and
+  their boxes' tops, in the world through the entity's matrix, faces with a normal over 0.35 up only, cached per entity
+  (made again when its col model's counts / arrays or its position change; dropped after 10 s unused) - the highest
+  face over (x, y) within 0.45 m of the animation's ground.
+- **The legs**: each foot's need is its ground less the animation's (the ped's position less 1 m), at most 0.45 m
+  either way; the whole pose goes down by the lower foot's need (none up), each leg's two-bone IK (law of cosines,
+  the knee kept in the plane it bends in, the thigh's and then the calf's shortest turn) takes its ankle to the
+  animation's ankle plus the rest - a step's lift over the ground is kept -, the foot and toe tilt 0.7 of the way to
+  the face's normal; all eased (0.4 a frame at 30 fps, SA's Smoothing) and back to the animation when the ped stops
+  standing on foot (states 0x2C - 0x2E, 0x37, 0x38, 0x39, 0x3A excluded, which leaves the ragdolls' poses alone).
+  Written into the drawn bones in the ped render's FUN_0020c310 (return address 0x200740), before the ragdolls' and
+  first person's hooks on it (installed after them, so it wraps them): a hit reaction takes the adjusted pose as its
+  target; a ragdoll's pose replaces it.
+- Checked (`tools/footik_check.py`, 3 runs): Vic on the stairs at (-891.8, -709.8), a 17 cm step between his feet -
+  each sole as drawn within 1 mm of its ground (the animation's 2 / 17 cm off), the hips 0.17 m down; a ped near
+  adjusted too; 0.011 ms a frame for both; switched off, no pose adjusted.
+
+### 12r. Jiggle physics (2026-10-31)
+
+After SA's Jolt Physics mod's [JigglePhysics] (its breast / glute springs need SA models with extra bones).
+- **VCS's peds have no bones for it**: every ped's anim tree is the same 25 nodes (12h); the skinned draw is VU1
+  microcode on prebuilt packets (6d), so moving single vertices would mean rewriting a ped's packet every frame - not
+  done. What does work: **the skinned draw takes each bone's world matrix on its own** (a child's matrix is not
+  derived from its parent's at draw time), so moving one bone's drawn matrix moves only the vertices weighted to it.
+  Spine1 (bone 3) carries the chest, the pelvis (bone 1) the hips and buttocks.
+- **The ped type is ped +0x550 (u32)**: 0 the player, 4 civilian male, 5 civilian female (VC's PEDTYPE_CIVFEMALE), 6 a
+  cop (found by diffing two peds made by CREATE_CHAR with types 4 and 5; street peds read 4 and 6, a cop's model 8).
+  "Female" is type 5.
+- **The springs** (Game > Physics > Jiggle physics, off by default, `VCS_JIGGLE`; Jiggle intensity, 100 % = the SA
+  ini's 1.8): per ped, one on spine1 (5.2 Hz, damping 0.28, at most 6 cm / 22 degrees) and one on the pelvis (3.8 Hz,
+  0.30, 5.5 cm / 16 degrees), driven by the bone's world acceleration (from its drawn positions, 1/240 s steps,
+  more than 80 m/s^2 = a teleport: reset), a little gravity (x 0.35), into the body at most 35 % of the max; the offset
+  moves the bone's drawn matrix and tilts it about the bone. The nearest 8 eligible peds within 30 m (chosen from the
+  previous frame's draws). In the ped's render, chained on FUN_0020c310 at 0x200740 with its own tree note on
+  FUN_0024e8d0 at 0x3C3280, installed before jolt::install so Jolt's hook (a ragdoll's or hit reaction's pose) runs
+  first and the springs ride on the drawn pose (the SA ini's RagdollJiggle). `VCS_JIGGLE_ALL=1`: every ped, Vic too.
+- Checked (`tools/jiggle_check.py`, three hidden games): a female ped is jiggled, a male one and Vic not; Vic (all
+  peds) running 1.5 s and stopping - chest 5.7 cm, hips 5.5 cm at most (the limits), settled to 0.3 / 0.6 cm (the
+  sag) 2 s later; off - nothing stepped. No tearing seen at the joints with the neck, arms and thighs (their own
+  matrices, skin blended across them).
 
 ### 12t. The first-person viewmodel - arms and gun in view (2026-10-31)
 

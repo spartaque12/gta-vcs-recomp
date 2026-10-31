@@ -23,7 +23,6 @@
 #include "game/vcs_stream_override.h"
 #include "game/vcs_freecam.h"
 #include "game/vcs_hud.h"
-#include "game/vcs_jolt.h"
 #include "game/vcs_rsl_native.h"
 #include "game/vcs_rsl_world.h"
 #include "modapi/mod_loader.h"
@@ -898,11 +897,9 @@ namespace
         vcs::installHudHooks(runtime);     // 2D at the RenderWare level
         vcs::freecam::install(runtime);    // the trainer's free camera (game/vcs_freecam.h)
         // the DLL mods' hooks (modapi/mod_loader.h), chained after the free camera: CameraAim.asi's camera, bones and
-        // field of view (first person)
+        // field of view (first person); JoltPhysics.asi's ragdolls, foot IK and jiggle (their bone hooks chain to first
+        // person's, free aim's line of sight below wraps theirs)
         vcs::modapi::install(runtime);
-        // death ragdolls (Jolt Physics): its bone hooks chain to first person's; free aim's line of sight wraps its own
-        // (it sees the camera's line), so before free aim (game/vcs_jolt.h)
-        vcs::jolt::install(runtime);
         // the DLL mods' late hooks: CameraAim.asi's free aim and car glass, Project2DFX.asi's lights, stars, traffic
         vcs::modapi::installLate(runtime);
         vcs::streamoverride::install(runtime); // streamed files from mods/stream/<id>.* (game/vcs_stream_override.h)

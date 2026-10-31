@@ -24,7 +24,6 @@
 #include "game/vcs_framerate.h"
 #include "game/vcs_movie.h"
 #include "game/vcs_hud.h"
-#include "game/vcs_jolt.h"
 #include "game/vcs_input.h"
 #include "game/vcs_volume.h"
 #include "modapi/mod_loader.h"
@@ -565,9 +564,8 @@ namespace
         settings::add(s);
 
         // the mods built as DLLs (build\scripts\*.asi; modapi/mod_loader.h): loaded here, their settings rows here - first
-        // person, free aim and field of view (CameraAim.asi) where they were when built in
+        // person, free aim and field of view (CameraAim.asi), the Physics rows (JoltPhysics.asi) where they were when built in
         vcs::modapi::registerPlugins();
-        vcs::jolt::registerSettings();        // death ragdolls, Jolt Physics (game/vcs_jolt.h)
 
         s = {};
         s.key = "display.msaa";

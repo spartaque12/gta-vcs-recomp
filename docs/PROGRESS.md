@@ -691,7 +691,7 @@ dropped on uploads (lazy render-target patching).
 - **Death ragdolls - Jolt Physics, milestone 1** (2026-10-31, the user's request: SA's "[SA] Jolt Physics" mod
   re-implemented in stages; Game > Physics > Ragdolls, off by default; game-internals.md 12f / 12h, DECISIONS.md): Jolt
   5.6.0 vendored (third_party/JoltPhysics) in its own library (src/physics); a ped that dies goes limp - an 11-part
-  ragdoll from its pose and speed, written into its bones at every draw (src/game/vcs_jolt.cpp) - and lands on a ground
+  ragdoll from its pose and speed, written into its bones at every draw (`VCS-mods plugins/JoltPhysics/src/jolt.cpp`) - and lands on a ground
   of its own at its feet. Checked by tools/ragdoll_check.py (hidden): a ped killed falls, lies 13 cm over the road and
   sleeps within ~4 s, its drawn bones the ragdoll's; Vic's death gets one and his respawn drops it; the setting
   switched at run time (off: the game's death; on; off again: removed); street peds of five more models. Cost: 8 falling
@@ -702,9 +702,53 @@ dropped on uploads (lazy render-target patching).
   bonnet and drops it ahead. Then (the user's request) shots on bodies already down move them - every bullet's line cast
   against the ragdolls (the game's collision for a dead ped is not where the body lies) - and blasts throw bodies in
   reach part by part, the peds they kill too: checked, 2 of 3 Colt45 shots at a lying body on it, a Shotgun blast
-  shoves it 0.24 m, a grenade-sized explosion throws a body 2 m away 7.3 m. Not yet (later milestones): the world's
-  collision (walls, stairs - milestone 2: the sectors' lists), gun and cash props, knockdowns, active ragdolls,
-  ballistics, gore, IK; peds dying in vehicles keep the game's death. Linux: not built with it yet.
+  shoves it 0.24 m, a grenade-sized explosion throws a body 2 m away 7.3 m. Not yet (later milestones): gun and cash
+  props, knockdowns, active ragdolls, ballistics, gore, IK; peds dying in vehicles keep the game's death. Linux: not
+  built with it yet.
+- **The world's collision for the ragdolls - Jolt Physics, milestone 2** (2026-10-31, the user's request;
+  game-internals.md 12k, DECISIONS.md): bodies land on, roll down and stop against the game's own collision - the col
+  models of the buildings (static) and objects (moving with the game's) in CWorld's sectors within 10 m of each
+  ragdoll, one cached Jolt shape per col model (triangles, boxes, spheres); a ground of its own only where nothing is
+  streamed in; the ped's height follows its body; corpse shots stop at walls. Checked by tools/ragdoll_world_check.py
+  (hidden): a ped blown off a roof 5.2 m up lands on the street, one blown into a wall stays in front of it, 0.26 ms a
+  step at most; tools/ragdoll_check.py still passes (bodies on the road's own triangles).
+- **Bike falls - knockdown ragdolls** (2026-10-31, the user's request; Game > Physics > Bike falls, with Ragdolls on;
+  game-internals.md 12l, DECISIONS.md): a rider the game throws off a bike (CBike::KnockOffRider: Vic crashing, a ped
+  hit by a car, a burst tyre, a killing shot) tumbles as a ragdoll with the throw's speed and gets up where the body
+  comes to rest - the game's own fall held while it moves, then its own get-up, the body's last pose eased into it.
+  Checked by tools/ragdoll_bike_check.py (hidden): Vic on a PCJ-600 into a wall - thrown, against the wall and down,
+  up after 3.9 s; a ped on a PCJ-600 hit head on by a Sentinel - onto a wall top, up after 3.4 s; a rider shot dead - a
+  dead ragdoll. Not yet: other knockdowns (on foot), get-up animations chosen by the body's side.
+- **Hit reactions - GTA IV / Euphoria style** (2026-10-31, the user's request, after SA's Jolt Physics mod's active
+  ragdolls; Game > Physics > Hit reactions, with Ragdolls on; game-internals.md 12n, DECISIONS.md): a ped (or Vic) shot
+  and not killed reacts with its body where the bullet hits - a short active ragdoll on its animation, muscles pulling
+  it back - and keeps going; a hit that knocks it down drops it as a ragdoll that gets up. Checked by
+  tools/hit_reactions_check.py (hidden, 3 runs). Then (the user's follow-ups): no trailing limbs when a hit ped sprints off
+  (drawn at most 0.2 m off its animation, faded once it runs), a hand to the wound (IK, held 1.6 s, kept while fleeing),
+  a stumble of 1 - 3 steps along a hard hit's push (or a third quick hit), stopped by walls. Not yet: hands catching
+  the fall, blind fire.
+- **Catching falls, firing back from the ground** (2026-10-31, the user's request; Game > Physics > Catch falls / Fire
+  back from the ground; game-internals.md 12s, DECISIONS.md): a knocked-down ped puts its hands out toward the ground
+  as it falls; an armed ped shot down fires blind shots back at its shooter from the ground with the game's own weapon
+  code. Checked by tools/blindfire_check.py (hidden, 3 runs).
+- **Foot IK** (2026-10-31, the user's request, after SA's Jolt Physics mod's [FootIK]; Game > Physics > Foot IK, off by
+  default; game-internals.md 12q, DECISIONS.md): Vic's and nearby peds' feet stand on the ground under them on slopes
+  and stairs - the hips lowered, each leg reaching its ground, the feet tilted with it. Checked by tools/footik_check.py
+  (hidden, 3 runs): on a 17 cm step both soles within 1 mm of their ground.
+- **Dismemberment** (2026-10-31, the user's request, after SA's Jolt mod; Game > Physics > Dismemberment, off by default;
+  game-internals.md 12p, DECISIONS.md): lethal hits, shots on bodies down and blasts can take limbs or the head off by
+  weapon - the stump drawn collapsed, bleeding the game's blood. Checked by tools/gore_check.py (hidden). Not yet: the
+  loose limb (no models), aimed head shots tried.
+- **Jiggle physics** (2026-10-31, the user's request, after SA's Jolt Physics mod; Game > Physics > Jiggle physics, off by
+  default; game-internals.md 12r, DECISIONS.md): female peds' chests and hips bounce with their movement and settle -
+  springs on the chest and pelvis bones' drawn matrices (VCS's peds have no breast or glute bones). Checked by
+  tools/jiggle_check.py (hidden).
+- **Guns and cash on the ground - GTA IV style** (2026-10-31, the user's request: SA's "GTA IV Pickups On The Ground";
+  Game > Physics > Pickups on the ground; game-internals.md 12m, DECISIONS.md): weapon and cash pickups no longer spin
+  and glow in the air - each falls with Jolt from where the game puts it (a dead ped's gun and cash thrown out a
+  little) and lies on a side at its real size; collection follows it. Checked by tools/pickups_check.py (hidden): a
+  killed ped's Colt45 and four piles of cash land on the road and stay, the cash is collected by walking onto it, a
+  map weapon pickup lies on the ground. Not yet: the swap key for a weapon whose slot is taken.
 
 ## Milestone 9 - Linux (started 2026-10-30)
 
@@ -928,9 +972,25 @@ Python scripts still usable on their own. docs/LAUNCHER.md has the whole of it; 
 | `VCS_TRACE_PED_REMOVE=1` | log every ped flagged for removal (FlagToDestroy, FUN_00210780) and deleted (FUN_00198408): handle, position, model, created-by, flags, last script, callers |
 | `VCS_MODS_DIR=<dir>` | the mods folder (default `mods` next to vcs.exe): `<dir>/stream/<id>.*` replace streamed files (models, texture dictionaries; game/vcs_stream_override.h, tools/weapon_convert.py) |
 | `VCS_STREAM_OVERRIDE=0` | no streamed file replaced (the reference) |
-| `VCS_JOLT=0\|1` | death ragdolls (Jolt Physics) off / on for one run, over Game > Physics > Ragdolls (game/vcs_jolt.h) |
+| `VCS_JOLT=0\|1` | death ragdolls (Jolt Physics) off / on for one run, over Game > Physics > Ragdolls (JoltPhysics.asi jolt.h) |
 | `VCS_JOLT_HOOKS=0` | no ragdoll hooks at all (the reference) |
+| `VCS_JOLT_WORLD=0` | ragdolls without the world's collision: each on a ground of its own at its feet (milestone 1) |
+| `VCS_JOLT_BIKES=0\|1` | bike falls (knockdown ragdolls for riders thrown off) off / on for one run, over Game > Physics > Bike falls |
+| `VCS_JOLT_PICKUPS=0\|1` | guns and cash on the ground (Jolt props) off / on for one run, over Game > Physics > Pickups on the ground |
+| `VCS_JOLT_HITS=0\|1` | hit reactions (active ragdolls on shot peds) off / on for one run, over Game > Physics > Hit reactions |
+| `VCS_JIGGLE=0\|1`, `VCS_JIGGLE_ALL=1` | jiggle physics off / on for one run (over Game > Physics > Jiggle physics); every ped, the player too |
+| `VCS_JOLT_GORE=0\|1` | dismemberment off / on for one run, over Game > Physics > Dismemberment |
+| `VCS_JOLT_CATCH=0\|1`, `VCS_JOLT_BLINDFIRE=0\|1` | catching falls / firing back from the ground, over Game > Physics |
+| `VCS_FOOTIK=0\|1` | Foot IK off / on for one run, over Game > Physics > Foot IK |
 | `python tools/ragdoll_check.py [OUT]` | death ragdolls: a ped and Vic killed, the pelvis followed as it falls and settles, a shotgun kill thrown back, a car's onto the bonnet, the respawn; shots on a lying body, a blast |
+| `python tools/ragdoll_world_check.py [OUT]` | ragdolls on the world's collision: a ped blown off a roof lands on the street, one blown into a wall stays in front of it |
+| `python tools/ragdoll_bike_check.py [OUT]` | bike falls: Vic crashing a PCJ-600 into a wall, a ped on one hit by a car, a rider shot dead - thrown, down, up again |
+| `python tools/pickups_check.py [OUT]` | guns and cash on the ground: a killed ped's drops land and stay, cash collected, a map weapon pickup on the ground |
+| `python tools/hit_reactions_check.py [OUT]` | hit reactions: pistol hits react and recover, a knockdown gets up, a Shotgun close up drops the ped |
+| `python tools/jiggle_check.py [OUT]` | jiggle physics: only female peds, Vic running and stopping (all peds) moves and settles the springs, off = nothing |
+| `python tools/gore_check.py [OUT]` | dismemberment: blasts take parts off, stumps drawn collapsed and bleeding, none when off |
+| `python tools/blindfire_check.py [OUT]` | an armed ped shot down braces its fall, fires back from the ground, gets up |
+| `python tools/footik_check.py [OUT]` | Foot IK: Vic on a step, each sole on its ground; a ped near adjusted; off = nothing adjusted |
 | `VCS_DISTANT_LIGHTS`, `VCS_MORE_STARS`, `VCS_DISTANT_CARS`, `VCS_DISTANT_BOATS`, `VCS_FLIGHT_CEILING` `=0\|1` | Project2DFX's distant lights, 500 more stars, distant traffic, the 800 m flight ceiling for one run (Graphics > Project2DFX, Game > Flying; game/vcs_project2dfx.h). Draw distance / Object detail distance: Graphics > Draw distance (`setting p2dfx.draw_distance 300` for tests) |
 | `VCS_P2DFX_LIGHTS=<file>` | another light table than `p2dfx/lights.bin` next to vcs.exe (`python tools/p2dfx.py import <plugin zip>` makes it) |
 | `VCS_P2DFX_HOOKS=0`, `VCS_P2DFX_VERIFY=1` | no Project2DFX hooks (the reference); the native projection / sprite writer checked against every call of the game's own (counts in the `p2dfx` control command) |
