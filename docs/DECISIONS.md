@@ -755,3 +755,18 @@ settings menu (`src/game/vcs_freeaim.cpp`, game-internals.md 12d).
   (VU1, native HLE, D3D11 / Vulkan) draws them unchanged; SA's 1024-px DXT textures become 128x128 8-bit (a parameter),
   the parts of an animated SA gun are merged at their rest places, the model is moved so its box centre is the VCS
   model's (where the hand holds it).
+
+## 2026-10-31 - PCSX2 PNG packs as optional host textures
+
+The user supplied `SLUS-21590/replacements` and asked to use its PCSX2 textures in the native port. Accept those
+filenames directly: PCSX2 pixel/palette hashes and format bits, including the older TCC bit. Keep the original
+disc, raster uploads, renderer and fallback intact; match at the shared texture cache so the world, HUD and menus
+all benefit. The option is off by default and applies after restart. Decode PNGs asynchronously, share one GPU
+copy per pack image, and bound the replacement cache by bytes (512 MiB by default). Keep GS logical sizes separate
+from physical replacement sizes, including non-integer scales and region wrap. Start with the format actually
+provided (full-texture PNGs); DDS, archives and separate region/mipmap files are outside this first implementation.
+The pack remains external, ignored by git and rejected by the release guard. See `docs/TEXTURE_PACKS.md`.
+
+The user subsequently requested `textures/SLUS-21590/`: automatic discovery checks `textures/` beside the exe and,
+for the default source build, in the checkout root before the older bare serial folders. The pack-check tool uses
+this layout by default too. Tests were skipped at the user's request for this folder-discovery change.

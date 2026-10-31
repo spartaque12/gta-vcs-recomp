@@ -374,6 +374,13 @@ class Progress:
         return "%s %s" % (self.label, _duration(time.time() - self.start)) + (" (%d steps)" % self.total if self.total else "")
 
 
+def _resolve_command(cmd, env=None):
+    """Resolve a tool using the same PATH its subprocess receives (also supports env=None)."""
+    path = env.get("PATH") if env is not None else None
+    found = shutil.which(cmd[0], path=path)
+    return [found, *cmd[1:]] if found else cmd
+
+
 def run_with_progress(cmd, log, label, cwd=ROOT, env=None):
     """Runs `cmd` with its output to `log` under an elapsed-time line; returns the exit code."""
     cmd = resolve(cmd, env)
@@ -475,9 +482,12 @@ def build_env():
     env["PATH"] = os.pathsep.join(front + [env.get("PATH", "")] + [p for p in back if os.path.isdir(p)])
     if jdk:
         env["JAVA_HOME"] = jdk
-    clang = _which("clang-cl", env)
+    clang = _which("clang-cl", env) or shutil.which("clang-cl")
     if not clang:
         fail('clang-cl not found: in the Visual Studio Installer, Modify, tick "C++ Clang tools for Windows"', "no_clang")
+    # Keep the detected compiler visible to CMake and its child processes.
+    clang_dir = os.path.dirname(os.path.abspath(clang))
+    env["PATH"] = clang_dir + os.pathsep + env["PATH"]
     if clang_version(clang) < MIN_CLANG:
         fail("clang-cl %d or newer needed (found %d at %s): update Visual Studio (Visual Studio Installer, Update)"
              % (MIN_CLANG, clang_version(clang), clang), "old_clang")
@@ -892,6 +902,7 @@ def configure(env, force=False, build_dir=BUILD_DIR, defines=None):
     print("[build] configuring " + show(build_dir) + "".join(" %s=%s" % kv for kv in (defines or {}).items()))
     stage("configure", "Configuring the build (CMake)")
     log = os.path.join(BUILD, "configure.log")
+
     if run_with_progress(cmd, log, "[build] configure", env=env) != 0:
         print(tail(log, 30))
         fail("CMake configure failed (full log: %s)" % show(log), configure_failure(log), log)
