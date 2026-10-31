@@ -903,7 +903,7 @@ this layout by default too. Tests were skipped at the user's request for this fo
 ## 2026-10-31 - 80's VC True Vegetation: VC's palms in place of VCS's (the user's request)
 
 The user asked to port the "80's VC True Vegetation" mod (VC PC palms and trees) and to pick the fitting palms.
-- **By name**: VCS kept VC's vegetation names (game-internals.md 12i), so each of the pack's seven palms replaces the VCS
+- **By name**: VCS kept VC's vegetation names (game-internals.md 12j), so each of the pack's seven palms replaces the VCS
   model of the same name - `veg_palm01..04`, `veg_palmbig14`, `veg_palwee01..02` - through the streamed-file overrides
   (`tools/veg_convert.py` -> `<mods>/stream`), with that model's own texture dictionary, which nothing else uses. The
   user then asked for the pack's four leaf trees too (`veg_tree3`, `veg_treea1`, `veg_treea3`, `veg_treeb1`): all
