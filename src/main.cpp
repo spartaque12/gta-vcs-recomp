@@ -26,7 +26,6 @@
 #include "game/vcs_hud.h"
 #include "game/vcs_jolt.h"
 #include "game/vcs_input.h"
-#include "game/vcs_project2dfx.h"
 #include "game/vcs_volume.h"
 #include "modapi/mod_loader.h"
 #include "platform/platform.h"
@@ -644,7 +643,9 @@ namespace
         if (s.choices.size() > 1)
             settings::add(s);
 
-        vcs::p2dfx::registerSettings(); // distant lights, stars, traffic; the flight ceiling (game/vcs_project2dfx.h)
+        // the DLL mods' rows for this place: Project2DFX.asi's distant lights, stars, traffic, draw distance (Graphics) and
+        // flight ceiling (Game), where they were when built in (modapi/mod_loader.h)
+        vcs::modapi::registerSlot("graphics");
         vcs::input::registerSettings(); // the Keyboard & mouse and Gamepad pages (game/vcs_input.h)
 
         s = {};

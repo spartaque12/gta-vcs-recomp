@@ -24,7 +24,6 @@
 #include "game/vcs_freecam.h"
 #include "game/vcs_hud.h"
 #include "game/vcs_jolt.h"
-#include "game/vcs_project2dfx.h"
 #include "game/vcs_rsl_native.h"
 #include "game/vcs_rsl_world.h"
 #include "modapi/mod_loader.h"
@@ -904,9 +903,9 @@ namespace
         // death ragdolls (Jolt Physics): its bone hooks chain to first person's; free aim's line of sight wraps its own
         // (it sees the camera's line), so before free aim (game/vcs_jolt.h)
         vcs::jolt::install(runtime);
-        vcs::modapi::installLate(runtime); // the DLL mods' late hooks: CameraAim.asi's free aim and car glass
+        // the DLL mods' late hooks: CameraAim.asi's free aim and car glass, Project2DFX.asi's lights, stars, traffic
+        vcs::modapi::installLate(runtime);
         vcs::streamoverride::install(runtime); // streamed files from mods/stream/<id>.* (game/vcs_stream_override.h)
-        vcs::p2dfx::install(runtime);       // Project2DFX: distant lights, stars, traffic (game/vcs_project2dfx.h)
         vcs::installFrameRateHooks(runtime); // 30 / 60 fps (game/vcs_framerate.h)
         vcs::installScriptTimingHooks(runtime); // per-frame mission meters on the time step (game/vcs_script_timing.h)
         vcs::installPhysicsTimingHooks(runtime); // per-frame vehicle pushes on the time step (game/vcs_physics_timing.h)

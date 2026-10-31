@@ -15,6 +15,10 @@ namespace vcs::modapi
     // VcsModRegister - its settings rows come here, in the Game page after "Window".
     void registerPlugins();
 
+    // Main thread, later in the settings registration: each mod's VcsModRegisterSettings(api, slot) - "graphics" after
+    // the Graphics page's renderer rows (where Project2DFX's rows were when built in).
+    void registerSlot(const char *slot);
+
     // The ELF is loaded (applyVcs): VcsModInstall right after the free camera's hooks, before the built-in mods' (the
     // ragdolls' bone hooks then wrap a mod's); VcsModInstallLate after the built-in mods' hooks (a mod's line-of-sight
     // hook wraps the ragdolls').

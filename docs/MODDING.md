@@ -4,7 +4,7 @@ Since 2026-10-31 vcs.exe loads mods built as separate DLLs, like an ASI loader f
 `build\scripts\` (or next to `vcs.exe`) and start the game. Without any, the game is vcs.exe's own. The mods themselves
 live in their own repository, [spartaque12/VCS-mods](https://github.com/spartaque12/VCS-mods); the first one is
 `CameraAim.asi` (first person on foot and in vehicles, free aim, manual drive-by, the car's glass, field of view), moved
-out of vcs.exe. Which mod lives where: [MODS.md](MODS.md). Why: [DECISIONS.md](DECISIONS.md) (2026-10-31, mods as DLLs).
+out of vcs.exe, and `Project2DFX.asi` (distant lights, stars, distant traffic, draw distance, flight ceiling). Which mod lives where: [MODS.md](MODS.md). Why: [DECISIONS.md](DECISIONS.md) (2026-10-31, mods as DLLs).
 
 ## For players
 
@@ -28,12 +28,15 @@ C++ crosses it, so a mod is built on its own and keeps working with later builds
 | `int VcsModInstall(const VcsModApi *)` (optional) | the ELF loaded, before the game runs | hooks (`lookup_function` + `replace_function`), in before the built-in mods' hooks - those wrap it |
 | `int VcsModInstallLate(const VcsModApi *)` (optional) | right after, once the built-in mods' hooks are in | hooks that must wrap the built-in mods' (game-internals.md 12o) |
 | `const char *VcsModName(void)` (optional) | | the name in the log |
+| `int VcsModRegisterSettings(const VcsModApi *, const char *slot)` (optional) | later in the settings registration | rows for a later place of the menu: slot `graphics` = after the Graphics page's renderer rows, before the controls pages (Project2DFX's rows, and its flight ceiling at the end of the Game page) |
 
 What the table gives:
 - **The game**: `rdram()`, `lookup_function` / `replace_function` on the recompiled function table, and the offsets of
   the guest context's registers (`ctx_gpr_offset`, `ctx_pc_offset`, `ctx_fpr_offset`): a hook reads `$a0` as the low 32
   bits at `gpr_offset + 16 * 4`, writes a register as the runtime does (the low 64 bits, sign-extended), returns to the
-  caller by setting `pc` to `$ra`. The rules of AGENTS.md "Hooks on recompiled functions" hold for a mod's hooks too.
+  caller by setting `pc` to `$ra`. `register_function` / `has_function` (appended to API 1, check with
+  `VCS_MOD_API_HAS`) put a host function at an address that has none - a continuation a guest tail call returns to,
+  as Project2DFX's chains do at 0x27C41C. The rules of AGENTS.md "Hooks on recompiled functions" hold for a mod's hooks too.
 - **Settings**: `add_setting` (a `VcsModSetting`: key, page, section, label, help, type, range, format, default,
   environment override, callbacks with a user pointer) becomes a `settings::Spec`; `setting_value`, `set_setting`.
   Rows are shown where `VcsModRegister` runs: on the Game page after "Window", before "Physics".
@@ -49,7 +52,8 @@ What the table gives:
 - **Control channel and log**: `add_command` (a rig / gamectl command answered with one line), `log`, `game_dir`.
 
 Building: the hooks use the guest calling convention (`VCS_GUEST_CC`, clang's `preserve_none` on x86-64), so a mod is
-built with clang-cl (Windows) or clang (Linux), against the DLL C runtime (`/MD`, as vcs.exe). VCS-mods' CMake does
+built with clang-cl (Windows) or clang (Linux), against the DLL C runtime (`/MD`, as vcs.exe), with the exe's float flags
+(`/arch:AVX2`, `-ffp-contract=off`, `-fno-math-errno`) so host code that reproduces game maths stays bit-exact. VCS-mods' CMake does
 all this; its README has the commands. On Linux the loader takes `*.so` from the same folders.
 
 Versioning: `VCS_MOD_API_VERSION` (now 1) changes only when a change breaks built mods; new functions are appended
@@ -60,16 +64,14 @@ itself.
 
 `src/modapi/mod_loader.cpp`: loading (`LoadLibrary` / `dlopen` of `<exe dir>\*.asi`, then `<exe dir>\scripts\*.asi`,
 sorted by name; DLLs without `VcsModApiVersion` / `VcsModRegister` - an ASI for another game - are skipped), the API
-table, and the exe's side of the coupling: `registerPlugins()` in main.cpp's settings registration, `install()` /
+table, and the exe's side of the coupling: `registerPlugins()` in main.cpp's settings registration (and
+`registerSlot("graphics")` later in it), `install()` /
 `installLate()` in `game/vcs_overrides.cpp` applyVcs around the ragdolls' install, `drawCallbacks()` in the UI hook,
 `lookActive()` / `look()` in `game/vcs_input.cpp`, `registerHotkeySettings()` there and `pollHotkeys()` in
 `ui/trainer_menu.cpp`. A mod is never unloaded.
 
 ## Next
 
-- **Project2DFX** as `Project2DFX.asi`: needs `register_function` / `has_function` in the API (its guest tail-call
-  chains return to a continuation address of its own, 0x27C41C) and a settings slot after the Graphics page's renderer
-  rows (its rows are registered there, after the camera ones).
 - **Jolt Physics** (ragdolls, `src/game/vcs_jolt.cpp`, `src/physics`): a mod of its own once its work settles; it links
   Jolt itself, so only its hooks and settings cross the API.
 - **The streamed-file override** (ModLoader-style `mods\stream\`) and the weapon pack's tools.

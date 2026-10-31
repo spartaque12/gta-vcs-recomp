@@ -1135,7 +1135,9 @@ planes leave in the sky (seen outside the Little Havana Empire site, 08:28, 16:9
 
 Found porting ThirteenAG's Project2DFX for the PCSX2 fork (its MIT source names the addresses it patches:
 github.com/ThirteenAG/III.VC.SA.IV.Project2DFX, `source/console/GTAVCS.PCSX2F.Project2DFX`), each checked in the
-generated code and a headless Ghidra decompile (`src/game/vcs_project2dfx.cpp` uses them).
+generated code and a headless Ghidra decompile (`src/game/vcs_project2dfx.cpp` uses them; since 2026-10-31 the
+Project2DFX.asi mod, spartaque12/VCS-mods `plugins/Project2DFX`: its float helpers are a copy of the runtime's, built with
+the exe's `-ffp-contract=off`, docs/MODDING.md).
 - **CCoronas::Render = `FUN_0027C418`**, called once a frame at `0x21F268` (return `0x21F270`) in the 3D render
   `FUN_0021EFB8`, between packet-buffer checks (`FUN_00476770`). 56 coronas at `0x512560`, 0x90 bytes each (position
   +0x10, id +0x20). States on entry: Z write off (6, 0), (10, 1), src / dest blend 2 / 2; a second pass draws the

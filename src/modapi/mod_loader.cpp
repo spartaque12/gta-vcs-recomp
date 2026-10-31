@@ -55,6 +55,7 @@ namespace vcs::modapi
             std::string file; // the file name (the log)
             std::string name;
             VcsModInstallFn install = nullptr, installLate = nullptr;
+            VcsModRegisterSettingsFn registerSettings = nullptr;
         };
 
         struct Hotkey
@@ -118,6 +119,15 @@ namespace vcs::modapi
         {
             return g_runtime ? reinterpret_cast<VcsGuestFn>(g_runtime->lookupFunction(address)) : nullptr;
         }
+
+        int apiRegister(uint32_t address, VcsGuestFn fn)
+        {
+            if (!g_runtime || !fn)
+                return 0;
+            return g_runtime->registerFunction(address, reinterpret_cast<PS2Runtime::RecompiledFunction>(fn)) ? 1 : 0;
+        }
+
+        int apiHas(uint32_t address) { return g_runtime && g_runtime->hasFunction(address) ? 1 : 0; }
 
         std::string str(const char *s) { return s ? s : ""; }
 
@@ -265,6 +275,8 @@ namespace vcs::modapi
             a.last_pad = &apiLastPad;
             a.freecam_flying = &apiFreecamFlying;
             a.game_dir = &apiGameDir;
+            a.register_function = &apiRegister;
+            a.has_function = &apiHas;
             return a;
         }
 #if defined(__clang__)
@@ -355,6 +367,7 @@ namespace vcs::modapi
             p.name = name && name() ? name() : file;
             p.install = reinterpret_cast<VcsModInstallFn>(symbol(lib, "VcsModInstall"));
             p.installLate = reinterpret_cast<VcsModInstallFn>(symbol(lib, "VcsModInstallLate"));
+            p.registerSettings = reinterpret_cast<VcsModRegisterSettingsFn>(symbol(lib, "VcsModRegisterSettings"));
             g_registering = true;
             const int ok = reg(&api());
             g_registering = false;
@@ -381,6 +394,20 @@ namespace vcs::modapi
         for (const fs::path &folder : {dir, dir / "scripts"})
             for (const fs::path &p : candidates(folder))
                 loadOne(p);
+    }
+
+    void registerSlot(const char *slot)
+    {
+        for (const Plugin &p : g_plugins)
+        {
+            if (!p.registerSettings)
+                continue;
+            g_registering = true;
+            const int ok = p.registerSettings(&api(), slot);
+            g_registering = false;
+            if (!ok)
+                std::fprintf(stderr, "[mods] %s: VcsModRegisterSettings(%s) failed\n", p.name.c_str(), slot);
+        }
     }
 
     void install(PS2Runtime &runtime)

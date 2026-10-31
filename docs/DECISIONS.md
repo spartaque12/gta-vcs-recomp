@@ -981,3 +981,14 @@ aim mods left the exe for `CameraAim.asi` in spartaque12/VCS-mods. Phase 1; the 
   override): checked in hidden runs (MODDING.md, game-internals.md 12o). `VCS_MODS=0` loads none.
 - **Not moved yet**: Jolt and the streamed-file override / weapon tools (other work in progress on them) and
   Project2DFX (its guest tail-call chains need `register_function` in the API).
+
+Later the same day, at the user's request: **Project2DFX left the exe too** (`Project2DFX.asi`, VCS-mods
+`plugins/Project2DFX`). The API grew without a version change - `register_function` / `has_function` appended (its
+guest tail-call chains return to a continuation of its own, 0x27C41C) and an optional export
+`VcsModRegisterSettings(api, slot)` called at named places of the settings registration, so its rows stay where they
+were (slot "graphics": the end of the Graphics page; its flight ceiling at the end of the Game page). Its bit-exact
+projection uses the runtime's EE float helpers: a copy of them goes with the mod (`ps2_float.h`) and the mods are built
+with the exe's float flags (`-ffp-contract=off`, AVX2). "Alpha dual pass" stays in the exe: it is a renderer setting,
+not part of the mod. The light table stays where it was (`p2dfx\lights.bin` beside vcs.exe). Checked in hidden runs on a
+privately linked exe (port 47690): at 23:00 4,423 lights loaded, 823 drawn, 41 more stars, 15 distant vehicles, the
+rows in place; without the DLL the rows and the `p2dfx` command are gone and the game runs.

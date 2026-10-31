@@ -23,7 +23,7 @@ The details are in the docs named in each row; decisions in DECISIONS.md, progre
 |---|---|---|
 | First person (on foot, vehicles), free aim, manual drive-by, car glass, field of view | `CameraAim.asi` - spartaque12/VCS-mods `plugins/CameraAim` (no longer in vcs.exe) | `build\scripts\CameraAim.asi` (installed); without it the rows, the B key / Back + R3 and the crosshair are gone |
 | Death ragdolls (Jolt Physics) | vcs.exe: `src/game/vcs_jolt.cpp`, `src/physics` | built in; next to move to a DLL |
-| Project2DFX | vcs.exe: `src/game/vcs_project2dfx.cpp` | built in; next (needs `register_function` in the API) |
+| Project2DFX (distant lights, stars, distant cars / boats, draw / detail distance, flight ceiling) | `Project2DFX.asi` - VCS-mods `plugins/Project2DFX` (no longer in vcs.exe) | `build\scripts\Project2DFX.asi` (installed); needs `p2dfx\lights.bin` beside vcs.exe as before. "Alpha dual pass" stays in the exe (a renderer setting) |
 | Streamed file override, Immersive Weapons Pack | vcs.exe: `src/game/vcs_stream_override.cpp`; `tools/weapon_convert.py` | built in; next |
 | Texture packs + HD HUD | vcs.exe (upstream PR #8) | built in (part of the port, not a mod to move) |
 
