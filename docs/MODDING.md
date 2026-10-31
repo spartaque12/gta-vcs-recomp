@@ -79,7 +79,8 @@ What the table gives:
   Shadows (appended, `VCS_MOD_API_HAS(api, render_shadow_map)`): `VcsRenderFrame.world_to_view` (the camera's rotation
   in the world, `view_valid`) and, in a hook added with `VCS_RENDER_NEEDS_SHADOW`, `render_shadow_map(view_to_clip,
   count, size, &drawn)`: the scene's Z-writing native draws depth only into 1-4 square viewports side by side, one
-  view -> clip matrix each (z larger = nearer the light). RenderHook.asi's sun shadows use them; the sun itself is game
+  view -> clip matrix each (z larger = nearer the light; static world meshes seen before and now off screen included);
+  `VcsRenderFrame.camera_position` (`position_valid`) places the camera in a world frame of the renderer's own. RenderHook.asi's sun shadows use them; the sun itself is game
   memory (game-internals.md 6n).
 - **VR** (appended to API 1 on 2026-11-01, check `VCS_MOD_API_HAS(api, present_window_copy)`; `VR.asi` uses it,
   docs/VR_PLAN.md M0): `add_present_hook(fn, user)` - the main thread, once per host frame, after the window's picture

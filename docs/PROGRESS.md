@@ -2,6 +2,9 @@
 
 ## 2026-10-31 - RenderHook-style graphics: ambient occlusion (RenderHook.asi)
 
+- Sun shadows fix (the user's report: shadows vanished / cut off when turning the camera): the renderer tracks the camera's
+  position from static world meshes and keeps drawing static meshes seen before while they are off screen (not LOD meshes
+  replaced in view); the mod snaps the cascades to the world. RENDERHOOK_PLAN.md "Sun shadows, fix".
 - Sun shadows (the user's request, GI with shadows step 1, 2026-11-01): the timecycle's sun vector found (0x4E7200 ring,
   index 0x4EA568; game-internals.md 6n), the camera's world rotation from the world's draws, shadow maps of the scene's
   draws on request (`render_shadow_map`), 3 cascades in RenderHook.asi; ~0.2 ms GPU at 1080p. Off by default. RENDERHOOK_PLAN.md.
@@ -1026,6 +1029,7 @@ Python scripts still usable on their own. docs/LAUNCHER.md has the whole of it; 
 | `VCS_P2DFX_HOOKS=0`, `VCS_P2DFX_VERIFY=1` | no Project2DFX hooks (the reference); the native projection / sprite writer checked against every call of the game's own (counts in the `p2dfx` control command) |
 | `VCS_RH_AO=0..3`, `VCS_RH_AO_RADIUS=50..300` | RenderHook.asi's ambient occlusion (off / subtle / normal / strong) and its radius in cm, for one run |
 | `rhtaa objects 0\|1`, `rhtaa mv 4` | per-object motion off / on in the checks; the renderer's velocity buffer (red covered, green moved, blue depth agrees) |
+| `PS2X_HW_SHADOW_CACHE=0` | shadow maps: only this frame's draws cast (no remembered off-screen static meshes; comparisons) |
 | `VCS_RH_SHADOWS=0..3`, `VCS_RH_SHADOW_DISTANCE=50..400`, `VCS_RH_SHADOW_QUALITY=0..2`, `VCS_RH_SHADOW_VIEW=1` | RenderHook.asi sun shadows: off / soft / normal / dark, distance (m), 1024 / 2048 / 4096 per cascade, the debug view (control channel: `rhshadow [view 0/1]`) |
 | `VCS_RH_DLAA=0/1`, `VCS_RH_DLAA_JITTER_SIGN=-1`, `VCS_RH_DLAA_MV_SIGN=-1` | RenderHook.asi DLAA (NGX; D3D11; control channel: `rhdlaa`); the signs flip the jitter / motion vectors handed to DLSS (diagnostics) |
 | `VCS_RH_JITTER=N`, `VCS_RH_MV_VIEW=1..3` | RenderHook.asi temporal AA groundwork: an N-point jitter; motion vectors as colour / previous frame warped by them minus the current (black = right) / unwarped (control channel: `rhtaa`) |

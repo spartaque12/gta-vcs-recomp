@@ -984,10 +984,14 @@ namespace
                 {
                     const MeshCreate &m = f.meshes[c.index];
                     m_meshes[m.key] = m_dev.createBuffer({m.bytes.size(), rhi::BufferUsage::Vertex, false, "gs native mesh"}, m.bytes.data());
+                    noteMeshBounds(m); // [gta-recomp] remembered shadow casters are drawn only off screen (shadowPass)
                     break;
                 }
                 case CmdType::MeshDelete:
                     m_meshes.erase(f.meshDeletes[c.index]);
+                    m_shadowCache.erase(f.meshDeletes[c.index]); // [gta-recomp] its remembered shadow casters
+                    m_trackPlaces.erase(f.meshDeletes[c.index]);
+                    m_meshBounds.erase(f.meshDeletes[c.index]);
                     break;
                 case CmdType::NativeDraw:
                 {
@@ -2653,6 +2657,207 @@ namespace
             float m[16];
             float ofx, ofy;
         };
+        struct Caster // one draw of shadowPass: its vertices and model -> view rows
+        {
+            rhi::Buffer *vb;
+            uint32_t first, drawCount;
+            int pipeline;
+            double view[3][4];
+        };
+        // A static world mesh seen at a place (model -> tracking frame, sceneTrack), drawn into the shadow maps while it is
+        // off screen: the game draws only what the camera sees, so a building behind it would throw no shadow into view.
+        struct CachedCaster
+        {
+            double w[3][4];
+            uint32_t drawCount;
+            uint64_t seen; // m_trackFrame it was last drawn in
+            uint32_t hits; // frames it was drawn in at this place: drawn off screen from kShadowCacheHits on (a mesh that
+                           // moves with the camera - sky, horizon - is never at one place long enough)
+        };
+        static constexpr double kShadowCacheReach = 600.0; // metres from the camera: remembered casters drawn
+        static constexpr uint64_t kShadowCacheAge = 7200;   // tracked frames unseen before a remembered caster is dropped
+        static constexpr uint32_t kShadowCacheHits = 4;     // frames at one place before a caster is remembered
+
+        // a mesh's bounding sphere in model space (positions: the first 3 floats of each vertex)
+        void noteMeshBounds(const MeshCreate &m)
+        {
+            if (m.stride < 12u || !m.count || m.bytes.size() < size_t(m.stride) * m.count)
+                return;
+            float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+            for (uint32_t i = 0; i < m.count; ++i)
+            {
+                float p[3];
+                std::memcpy(p, m.bytes.data() + size_t(i) * m.stride, 12);
+                for (int k = 0; k < 3; ++k)
+                {
+                    lo[k] = std::min(lo[k], p[k]);
+                    hi[k] = std::max(hi[k], p[k]);
+                }
+            }
+            std::array<float, 4> b;
+            float r2 = 0.0f;
+            for (int k = 0; k < 3; ++k)
+            {
+                b[k] = 0.5f * (lo[k] + hi[k]);
+                r2 += 0.25f * (hi[k] - lo[k]) * (hi[k] - lo[k]);
+            }
+            b[3] = std::sqrt(r2);
+            if (std::isfinite(b[3]))
+                m_meshBounds[m.key] = b;
+        }
+
+        // Whether a sphere (view space) can be seen: in front of the camera and inside the picture's four sides. A remembered
+        // caster in view that the game did not draw this frame was swapped for another mesh (a LOD for the detailed one) -
+        // drawn, it would shade the mesh that replaced it.
+        bool inView(const double c[3], double r) const
+        {
+            if (c[2] < -r)
+                return false;
+            const double sides[4][2] = {{-m_shadowLens.cx / m_shadowLens.fx, 0.0}, {(640.0 - m_shadowLens.cx) / m_shadowLens.fx, 0.0},
+                                        {-m_shadowLens.cy / m_shadowLens.fy, 1.0}, {(448.0 - m_shadowLens.cy) / m_shadowLens.fy, 1.0}};
+            for (int i = 0; i < 4; ++i)
+            {
+                const double t = sides[i][0], a = sides[i][1] != 0.0 ? c[1] : c[0];
+                const double d = (i % 2 ? a - t * c[2] : t * c[2] - a) / std::sqrt(1.0 + t * t); // outside distance
+                if (d > r)
+                    return false;
+            }
+            return true;
+        }
+
+        // a native draw's model -> view rows: view = K^-1 S (x = (Sx - cx Sw) / fx, y = (Sy - cy Sw) / fy, z = Sw), S = M (p, 1)
+        void shadowViewRows(const ShadowDraw &d, double C[3][4]) const
+        {
+            const double cx = m_shadowLens.cx + d.ofx, cy = m_shadowLens.cy + d.ofy;
+            for (int k = 0; k < 4; ++k)
+            {
+                const float *col = d.m + k * 4;
+                C[0][k] = (col[0] - cx * col[3]) / m_shadowLens.fx;
+                C[1][k] = (col[1] - cy * col[3]) / m_shadowLens.fy;
+                C[2][k] = col[3];
+            }
+        }
+
+        // [gta-recomp] The camera's position in a frame of reference of the renderer's own: static world meshes drawn once in a
+        // frame (m_sceneMats, count 1) keep their place, so with the camera's rotation R (sceneView) a mesh whose place p is
+        // known gives the camera c = p - R^T v (v: its origin in view space, from the window matrix and the lens). The camera
+        // the known meshes agree on (median, two within 10 cm), then the places of meshes not known yet. No agreement (the
+        // first frame, a teleport, a cut to elsewhere): a new frame of reference, the camera at 0, the remembered casters
+        // forgotten. Positions are metres, the origin is not the game's.
+        bool sceneTrack(const SceneLens &lens, const float R[9])
+        {
+            ++m_trackFrame;
+            std::memcpy(m_trackR, R, sizeof(m_trackR));
+            auto place = [&](const SceneMatrix &e, double out[3]) { // R^T v
+                const float *c = e.m + 12;
+                const double v[3] = {(c[0] - (lens.cx + e.ofx) * c[3]) / lens.fx, (c[1] - (lens.cy + e.ofy) * c[3]) / lens.fy, c[3]};
+                for (int k = 0; k < 3; ++k)
+                    out[k] = R[k] * v[0] + R[3 + k] * v[1] + R[6 + k] * v[2];
+            };
+            std::vector<std::array<double, 3>> cands;
+            for (const auto &[key, e] : m_sceneMats)
+            {
+                if (e.count != 1u)
+                    continue;
+                auto it = m_trackPlaces.find(key);
+                if (it == m_trackPlaces.end())
+                    continue;
+                double rv[3];
+                place(e, rv);
+                cands.push_back({it->second[0] - rv[0], it->second[1] - rv[1], it->second[2] - rv[2]});
+            }
+            double cam[3] = {0.0, 0.0, 0.0};
+            uint32_t agree = 0;
+            if (!cands.empty())
+            {
+                for (int k = 0; k < 3; ++k)
+                {
+                    std::vector<double> a;
+                    a.reserve(cands.size());
+                    for (const auto &c : cands)
+                        a.push_back(c[k]);
+                    std::nth_element(a.begin(), a.begin() + a.size() / 2, a.end());
+                    cam[k] = a[a.size() / 2];
+                }
+                for (const auto &c : cands)
+                    agree += std::fabs(c[0] - cam[0]) + std::fabs(c[1] - cam[1]) + std::fabs(c[2] - cam[2]) < 0.1 ? 1u : 0u;
+            }
+            if (agree < 2u)
+            {
+                m_trackPlaces.clear();
+                m_shadowCache.clear();
+                cam[0] = cam[1] = cam[2] = 0.0;
+                ++m_trackResets;
+            }
+            std::copy(cam, cam + 3, m_camPos);
+            m_trackKnown = true;
+            for (const auto &[key, e] : m_sceneMats)
+            {
+                if (e.count != 1u)
+                    continue;
+                double rv[3];
+                place(e, rv);
+                const std::array<double, 3> p = {cam[0] + rv[0], cam[1] + rv[1], cam[2] + rv[2]};
+                auto it = m_trackPlaces.find(key);
+                if (it == m_trackPlaces.end())
+                {
+                    if (m_trackPlaces.size() < 65536u)
+                        m_trackPlaces.emplace(key, p);
+                }
+                else if (std::fabs(it->second[0] - p[0]) + std::fabs(it->second[1] - p[1]) + std::fabs(it->second[2] - p[2]) > 0.5)
+                    it->second = p; // the mesh is drawn somewhere else now (an instanced one): follow it
+            }
+            return true;
+        }
+
+        // this frame's static world draws remembered at their places (model -> tracking frame: R^T K^-1 M, plus the camera)
+        void shadowCacheUpdate()
+        {
+            for (const ShadowDraw &d : m_shadowDraws)
+            {
+                if (d.transient || d.kind != GSNativeDraw::VcsWorld)
+                    continue;
+                double C[3][4];
+                shadowViewRows(d, C);
+                CachedCaster cc{};
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 4; ++c)
+                        cc.w[r][c] = m_trackR[r] * C[0][c] + m_trackR[3 + r] * C[1][c] + m_trackR[6 + r] * C[2][c] + (c == 3 ? m_camPos[r] : 0.0);
+                cc.drawCount = d.drawCount;
+                cc.seen = m_trackFrame;
+                std::vector<CachedCaster> &list = m_shadowCache[d.meshKey];
+                bool found = false;
+                for (CachedCaster &e : list)
+                    if (std::fabs(e.w[0][3] - cc.w[0][3]) + std::fabs(e.w[1][3] - cc.w[1][3]) + std::fabs(e.w[2][3] - cc.w[2][3]) < 0.25)
+                    {
+                        cc.hits = e.seen == m_trackFrame ? e.hits : e.hits + 1u;
+                        e = cc;
+                        found = true;
+                        break;
+                    }
+                if (found)
+                    continue;
+                cc.hits = 1;
+                if (list.size() < 64u)
+                    list.push_back(cc);
+                else // full (a mesh that moves with the camera leaves a trail of places): the longest unseen one goes
+                    *std::min_element(list.begin(), list.end(), [](const CachedCaster &a, const CachedCaster &b) { return a.seen < b.seen; }) = cc;
+            }
+            if ((m_trackFrame & 63u) == 0u) // forget what was not seen for a while, or is far behind
+                for (auto it = m_shadowCache.begin(); it != m_shadowCache.end();)
+                {
+                    auto &list = it->second;
+                    list.erase(std::remove_if(list.begin(), list.end(),
+                                              [&](const CachedCaster &e) {
+                                                  double d2 = 0.0;
+                                                  for (int r = 0; r < 3; ++r)
+                                                      d2 += (e.w[r][3] - m_camPos[r]) * (e.w[r][3] - m_camPos[r]);
+                                                  return m_trackFrame - e.seen > kShadowCacheAge || d2 > 4.0 * kShadowCacheReach * kShadowCacheReach;
+                                              }),
+                               list.end());
+                    it = list.empty() ? m_shadowCache.erase(it) : std::next(it);
+                }
+        }
 
         void shadowNote(const Frame &f, const NativeDrawCmd &n)
         {
@@ -2786,6 +2991,77 @@ namespace
                 if (m_shadowVb)
                     m_dev.updateBuffer(*m_shadowVb, m_shadowVerts.data(), bytes);
             }
+            // the casters with their model -> view matrices: this frame's draws, then the remembered static meshes not drawn
+            std::vector<Caster> casters;
+            casters.reserve(m_shadowDraws.size() + 256u);
+            for (const ShadowDraw &d : m_shadowDraws)
+            {
+                Caster k{};
+                k.pipeline = d.kind == GSNativeDraw::VcsLit ? 1 : 0;
+                k.drawCount = d.drawCount;
+                if (d.transient)
+                {
+                    k.vb = m_shadowVb.get();
+                    k.first = d.first;
+                    k.pipeline = 2;
+                }
+                else if (auto it = m_meshes.find(d.meshKey); it != m_meshes.end())
+                    k.vb = it->second.get();
+                if (!k.vb)
+                    continue;
+                shadowViewRows(d, k.view);
+                casters.push_back(k);
+            }
+            const size_t live = casters.size();
+            static const bool remember = [] { // PS2X_HW_SHADOW_CACHE=0: only this frame's draws cast (comparisons)
+                const char *e = std::getenv("PS2X_HW_SHADOW_CACHE");
+                return !e || e[0] != '0';
+            }();
+            if (m_trackKnown && remember)
+                for (const auto &[key, list] : m_shadowCache)
+                {
+                    auto mesh = m_meshes.find(key);
+                    if (mesh == m_meshes.end())
+                        continue;
+                    for (const CachedCaster &cc : list)
+                    {
+                        if (cc.seen == m_trackFrame || cc.hits < kShadowCacheHits) // drawn this frame (listed), or not settled
+                            continue;
+                        double t[3], d2 = 0.0;
+                        for (int r = 0; r < 3; ++r)
+                        {
+                            t[r] = cc.w[r][3] - m_camPos[r];
+                            d2 += t[r] * t[r];
+                        }
+                        if (d2 > kShadowCacheReach * kShadowCacheReach)
+                            continue;
+                        Caster k{};
+                        k.vb = mesh->second.get();
+                        k.pipeline = 0;
+                        k.drawCount = cc.drawCount;
+                        // view = R (W p - camera)
+                        for (int r = 0; r < 3; ++r)
+                            for (int c = 0; c < 4; ++c)
+                            {
+                                double v = 0.0;
+                                for (int j = 0; j < 3; ++j)
+                                    v += static_cast<double>(m_trackR[r * 3 + j]) * (c == 3 ? t[j] : cc.w[j][c]);
+                                k.view[r][c] = v;
+                            }
+                        if (auto b = m_meshBounds.find(key); b != m_meshBounds.end())
+                        {
+                            double centre[3], scale = 0.0;
+                            for (int r = 0; r < 3; ++r)
+                                centre[r] = k.view[r][0] * b->second[0] + k.view[r][1] * b->second[1] + k.view[r][2] * b->second[2] + k.view[r][3];
+                            for (int c = 0; c < 3; ++c)
+                                scale = std::max(scale, std::sqrt(k.view[0][c] * k.view[0][c] + k.view[1][c] * k.view[1][c] + k.view[2][c] * k.view[2][c]));
+                            if (inView(centre, b->second[3] * scale))
+                                continue;
+                        }
+                        casters.push_back(k);
+                    }
+                }
+            m_shadowRemembered = static_cast<uint32_t>(casters.size() - live);
             endPass();
             rhi::PassDesc p;
             p.depth = m_shadowMap.get();
@@ -2800,46 +3076,24 @@ namespace
                 m_dev.setViewport(static_cast<float>(c * size), 0.0f, static_cast<float>(size), static_cast<float>(size));
                 m_dev.setScissor(static_cast<int>(c * size), 0, static_cast<int>(size), static_cast<int>(size));
                 const float *L = viewToClip + c * 16u;
-                for (const ShadowDraw &d : m_shadowDraws)
+                for (const Caster &d : casters)
                 {
-                    rhi::Buffer *vb = nullptr;
-                    uint32_t first = 0;
-                    int pipeline = d.kind == GSNativeDraw::VcsLit ? 1 : 0;
-                    if (d.transient)
-                    {
-                        vb = m_shadowVb.get();
-                        first = d.first;
-                        pipeline = 2;
-                    }
-                    else if (auto it = m_meshes.find(d.meshKey); it != m_meshes.end())
-                        vb = it->second.get();
-                    if (!vb)
-                        continue;
-                    // view = K^-1 S (x = (Sx - cx Sw) / fx, y = (Sy - cy Sw) / fy, z = Sw), S = M (p, 1): rows of C = K^-1 M
-                    const double cx = m_shadowLens.cx + d.ofx, cy = m_shadowLens.cy + d.ofy;
-                    double C[4][4] = {};
-                    for (int k = 0; k < 4; ++k)
-                    {
-                        const float *col = d.m + k * 4;
-                        C[0][k] = (col[0] - cx * col[3]) / m_shadowLens.fx;
-                        C[1][k] = (col[1] - cy * col[3]) / m_shadowLens.fy;
-                        C[2][k] = col[3];
-                    }
-                    C[3][3] = 1.0;
                     float rows[16];
                     for (int r = 0; r < 4; ++r)
                         for (int k = 0; k < 4; ++k)
                         {
                             double v = 0.0;
-                            for (int j = 0; j < 4; ++j)
-                                v += L[r * 4 + j] * C[j][k];
+                            for (int j = 0; j < 3; ++j)
+                                v += L[r * 4 + j] * d.view[j][k];
+                            if (k == 3)
+                                v += L[r * 4 + 3];
                             rows[r * 4 + k] = static_cast<float>(v);
                         }
-                    m_dev.setPipeline(*m_shadowPipelines[pipeline]);
-                    m_dev.setVertexBuffer(*vb, 0);
+                    m_dev.setPipeline(*m_shadowPipelines[d.pipeline]);
+                    m_dev.setVertexBuffer(*d.vb, 0);
                     m_dev.updateBuffer(*m_shadowCb, rows, sizeof(rows));
                     m_dev.setConstants(0, *m_shadowCb);
-                    m_dev.draw(d.drawCount, first);
+                    m_dev.draw(d.drawCount, d.first);
                     ++drawn;
                 }
             }
@@ -2918,7 +3172,15 @@ namespace
             v.viewKnown = v.camera && sceneView(lens, v.worldToView); // (before sceneReprojection moves the matrices on)
             m_shadowLens = v.camera ? lens : SceneLens{};
             if (needs & GSHwFrameHookShadow)
+            {
                 v.shadowMap = &RhiExecutor::hookShadowMap;
+                m_trackKnown = v.viewKnown && sceneTrack(lens, v.worldToView);
+                if (m_trackKnown)
+                    shadowCacheUpdate();
+                v.positionKnown = m_trackKnown;
+                for (int k = 0; k < 3; ++k)
+                    v.cameraPosition[k] = static_cast<float>(m_camPos[k]);
+            }
             v.reprojectValid = sceneReprojection(rt.scale, o, v.reproject);
             if (needs & GSHwFrameHookVelocity)
                 v.velocity = velocityPass(rt.scale, o, v.width, v.height, consecutiveVelocity);
@@ -2936,13 +3198,14 @@ namespace
                 std::fprintf(stderr,
                              "[gs-hw] frame hook: %llu run, %llu frames missed; lens agreed in %llu, kept in %llu (%u candidates "
                              "now); fbp %u zbp %u %ux%u colour x%u depth %s; camera %d f %.2f %.2f c %.2f %.2f z = %.3f + %.1f / w "
-                             "(scale %g) fog %.2f %+.5f w; motion: %u object draws of %u matched; view %d; shadow casters %zu, %u drawn\n",
+                             "(scale %g) fog %.2f %+.5f w; motion: %u object draws of %u matched; view %d; shadow casters %zu, %u drawn (%u remembered); camera %d (%.1f %.1f %.1f, %llu resets)\n",
                              static_cast<unsigned long long>(m_scene.ran), static_cast<unsigned long long>(m_scene.missed),
                              static_cast<unsigned long long>(m_scene.agreed), static_cast<unsigned long long>(m_scene.kept),
                              m_scene.candidateCount, m_scene.fbp, m_scene.zbp, v.width, v.height, rt.samples,
                              v.depth ? (v.depth->desc().samples > 1u ? "sampled (MS)" : "sampled") : "none", v.camera ? 1 : 0, v.fx,
                              v.fy, v.cx, v.cy, v.depthA, v.depthB, v.depthScale, v.fogBias, v.fogScale, m_velDrawn, m_velCandidates,
-                             v.viewKnown ? 1 : 0, m_shadowDraws.size(), m_shadowDrawn);
+                             v.viewKnown ? 1 : 0, m_shadowDraws.size(), m_shadowDrawn, m_shadowRemembered, m_trackKnown ? 1 : 0, m_camPos[0],
+                             m_camPos[1], m_camPos[2], static_cast<unsigned long long>(m_trackResets));
             }
         }
 
@@ -3433,7 +3696,15 @@ namespace
         size_t m_shadowVbCapacity = 0;
         std::unique_ptr<rhi::Texture> m_shadowMap;
         SceneLens m_shadowLens;
-        uint32_t m_shadowDrawn = 0;
+        uint32_t m_shadowDrawn = 0, m_shadowRemembered = 0;
+        // [gta-recomp] the camera's position (sceneTrack) and the remembered static casters (shadowCacheUpdate)
+        std::unordered_map<uint64_t, std::array<double, 3>> m_trackPlaces; // static meshes' places by mesh key
+        std::unordered_map<uint64_t, std::vector<CachedCaster>> m_shadowCache;
+        std::unordered_map<uint64_t, std::array<float, 4>> m_meshBounds; // mesh key -> bounding sphere (model space)
+        float m_trackR[9] = {};
+        double m_camPos[3] = {};
+        bool m_trackKnown = false;
+        uint64_t m_trackFrame = 0, m_trackResets = 0;
         double m_reproj[16] = {}; // the last agreed reprojection (target pixels), kept for frames without agreement
     };
 

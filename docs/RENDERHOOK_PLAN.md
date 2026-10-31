@@ -188,6 +188,26 @@ The user asked for GI with shadows; the order agreed: the sun's direction, sun s
   cars stay (an option to hide them would be a game-side hook); shadows from the moon / at night none; weather (overcast,
   rain) does not dim them yet (the timecycle's values not read).
 
+## Sun shadows, fix: casters off screen (done 2026-11-01)
+
+The user's report: shadows "artefact or disappear when turning the camera" - a building's shadow vanished once the
+building left the view, and half-drawn buildings left straight-cut shadows (the game draws only what the camera sees).
+- **The camera's position** (`sceneTrack` in gs_hw.cpp, `GSHwFrameView.cameraPosition` / `VcsRenderFrame.camera_position`):
+  static world meshes drawn once a frame keep their place, so with the camera's rotation each known mesh gives the camera
+  (place - R^T v); the median the known meshes agree on (two within 10 cm), then the places of new meshes. A frame of
+  reference of the renderer's own (world axes, metres); no agreement (a teleport, a cut) starts a new one.
+- **Remembered casters** (`shadowCacheUpdate`): every static world draw is kept at its place (model -> tracking frame) and
+  drawn into the shadow maps while off screen, up to 600 m away, for 7200 tracked frames unseen. Two traps found in the
+  checks: meshes that move with the camera (sky, horizon) left a trail of copies that darkened everything - a caster now
+  needs 4 frames at one place; and coarse LOD meshes seen from afar were still drawn after the game swapped in the
+  detailed ones, shading them - a remembered caster is drawn only when its bounding sphere is out of view (`inView`; the
+  game draws everything in view, so one in view but not drawn was replaced). Peds and vehicles off screen still cast none.
+- **Steady while moving**: the mod snaps the cascades to whole texels in that world frame (camera_position), not from the
+  camera.
+- **Checked** (`build/aotest/rh_turn1..3`: turning on the spot at 17:00, debug view): before, shadows of the buildings
+  around vanished as they left the view; after, 900-1400 remembered casters keep them in every direction. Cost: render
+  thread +1 ms or less, GPU unchanged (~0.2 ms at 1080p). `PS2X_HW_SHADOW_CACHE=0` draws only the frame's own casters.
+
 ## Next
 
 2. Sun shadows step 2: alpha-tested casters (palm leaves) with their textures, the game's blob shadows optional, weather.

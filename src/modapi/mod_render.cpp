@@ -91,6 +91,8 @@ namespace vcs::modapi::render
             f.velocity = handle(v.velocity);
             f.view_valid = v.viewKnown ? 1 : 0;
             std::memcpy(f.world_to_view, v.worldToView, sizeof(f.world_to_view));
+            f.position_valid = v.positionKnown ? 1 : 0;
+            std::memcpy(f.camera_position, v.cameraPosition, sizeof(f.camera_position));
             g_device = v.device;
             g_view = &v;
             for (const Hook &h : g_hooks)

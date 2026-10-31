@@ -188,6 +188,11 @@ struct GSHwFrameView
     // a D32F texture (size * count x size) and returns it; m = count row-major 4x4 matrices from view space (above: metres)
     // to clip space (x, y -1..1, y up; z 0..1, larger = nearer the light, cleared to 0). Inside the hook, no pass open.
     rhi::Texture *(*shadowMap)(void *ctx, const float *viewToClip, uint32_t count, uint32_t size, uint32_t *drawn) = nullptr;
+    // The camera's position (GSHwFrameHookShadow; positionKnown) in a frame of reference the renderer keeps from the static
+    // world's draws (world axes, metres; the origin is the renderer's, renewed after a teleport). The shadow maps also draw
+    // the static world meshes seen before and now off screen, placed in this frame.
+    bool positionKnown = false;
+    float cameraPosition[3] = {};
 };
 using GSHwFrameHookFn = void (*)(void *user, const GSHwFrameView &view);
 enum : uint32_t
