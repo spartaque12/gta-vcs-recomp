@@ -2494,6 +2494,50 @@ hidden, `carglass` hidden = the car), free aim's shoulder camera with the crossh
 Dear ImGui context, a pistol aimed by the mouse taking a ped from 100 to 35 health; without the DLL the rows, the hotkey
 row and the `firstperson` command are gone and the game plays as v0.0.1.
 
+### 12t. The first-person viewmodel - arms and gun in view (2026-10-31)
+
+Found for CameraAim.asi's `viewmodel.cpp` (the user's request: UltimateFP SA's first person, where the player's own
+arms hold the gun in view) with the rig on a copy of the user's card (the `viewmodel` command: the hand's axes and
+place in the view's frame) and screenshots.
+- **What first person showed before**: the game's arms. With the aim flag (free aim's R1) only the arm-IK pistols
+  (19, 24, 26: weapon info bit 0x80) come up: the Colt45's hand at (0.25 right, 0.14 ahead, -0.24 up) of the eyes, the
+  barrel along the view. The others keep their hip hold under the aim flag: the Uzi's hand 0.72 m under the eyes, its
+  barrel straight down; the M4 / shotgun across the hips, barrel (-0.89, 0.44, 0.12) in the view; the left hand 0.47 m
+  out along the barrel, palm open beside it. So no gun showed in first person without firing.
+- **The hand's frame**: bone 15's rows in the view with the Colt45 pointed by the game: x (0.01, 0.99, -0.14) = **the
+  barrel**, z = the gun's up, y = z x x (the palm side, left). The weapon is drawn from the tree's bone 15 matrix after
+  FUN_0020c310 (0x200740): matrices changed there move the gun with the hand (checked on every class).
+- **The pose** (in the hook at 0x200740, before the head is collapsed): the right hand set to a place in the view per
+  class (pistols (0.15, 0.38, -0.16), SMGs (0.14, 0.36, -0.16), long guns (0.14, 0.24, -0.19) m) with its barrel on the
+  crosshair 30 m out and its z up; the left hand of two-handed guns at a fore-grip point per weapon in the gun's frame
+  (shotgun 0.30 m along the barrel, M4 / Ruger 0.25, MP5 0.19, ... 4.5 - 5 cm under it) with the gun's axes turned half a
+  turn about the barrel (the fingers wrap the fore-end from under); both shoulders (bones 8 / 13) carried with their arm
+  to (+-0.19, 0.08, -0.30) of the eyes - outside the picture - and each arm solved by two-bone IK (bones 8-10 / 13-15, the
+  elbow bent down and out, the clavicles 7 / 12 and fingers 11 / 16 carried). The game's shoulders are level with the
+  camera: moving the arm as one piece put the shoulder and upper arm in front of the lens (the user's complaint).
+  Upper arm + forearm reach ~0.5 m, so a rifle's grip out of reach draws the gun back along its barrel (at most 12 cm).
+- **Recoil** from the weapon slot's **+8, the rounds in the clip** (VC's CWeapon; ped +0x578 + slot x 0x1C): a drop is a
+  shot - the gun kicked 4 cm back, 1.2 cm up, 0.1 rad muzzle up, decaying in 0.07 s. Sway: the view's turn rate (0.08 s
+  smoothing) turns the gun about the eyes against it (at most 0.1 rad); bob from the ped's speed (+0x140 x 50 m/s).
+- The aim flag is kept on in first person with a gun (SetAimFlag's writes, the view's yaw / pitch) so the game's own
+  aim (and its shot source) follows the view; free aim's line hook still carries the shots (12d).
+- **Getting in and out of vehicles**: the ped's vehicle (+0x480) is set from the first frame of the enter anim (state
+  0x3D) to the end of the exit (0x3F), while the camera is still the follow camera (mode 4) - first person tested "on
+  foot" as +0x480 == 0 and handed those frames to the game's third-person camera (the user's "I see third person when I
+  enter a car or bike"). First person now runs in mode 4 / 11 whatever +0x480 holds (free aim's camera keeps the on-foot
+  test); while the vehicle is set the eyes come from the head joint kept in the vehicle's space (a bike's lean matrix)
+  plus the head's own axes (x 0.09 up the head, y 0.075 forward) - he ducks onto the seat. Checked: Sentinel and PCJ-600
+  enter (car: mode 4 for 2.5 s, then 18) and exit in first person. One frame of a bike dismount still showed the back of
+  his head (the head not collapsed in that draw: the hook at 0x200740 apparently not reached for it); a jump of the eyes
+  over 0.35 m in one update is held for up to three updates.
+- **Running backwards** the game turns the body to the run (S with the view ahead: the body faces the camera's back), so
+  the eyes at the head joint looked into his collar. The eyes now move out along the view's horizontal direction by 0.15 m x
+  (1 - view . body forward): 0 looking ahead, 0.3 m looking back.
+- Checked in hidden runs (an exe copy, a copy of the card, build/vm/*): Colt45, Uzi, M4, Shotgun standing, looking
+  0.6 rad up / down, turning, walking, aimed (R1) and fired - the gun in view at the lower right, the barrel on the
+  crosshair (hand x . view 0.99 - 1.00), only forearms and hands showing; free aim's shots through the dot at a
+  37-health ped 6 m out: Colt45 37 -> 4.5, Uzi -> 11, M4 and Shotgun killed. Melee weapons keep the game's arms.
+
 ## 13. Open questions / next research targets
 
 - Main loop, frame limiter, CTimer (section 4) - milestone 4 (60 fps).

@@ -1004,3 +1004,21 @@ three refreshes. Nothing in the renderer or CameraAim is wrong, so nothing was c
 fullscreen with G-Sync / FreeSync (VRR absorbs a few fps), or a cap with headroom that divides the refresh (80 at 240 Hz),
 or vertical sync On with a cap of 120 and MSAA 2x for headroom. Smoothing the look over host frames was not done: game
 and host frames are one-to-one at these settings, so it would only add delay.
+
+## 2026-10-31 - The first-person viewmodel: the ped's own arms posed by IK, not SA's animations (the user's request)
+
+The user asked for UltimateFP SA's viewmodel ("same viewmodel based on gta sa anims maybe?"). Converting SA's IFPs
+(tools/anim_convert.py) was weighed and not used: an anim block replaces the third-person anims too, VCS has no layer
+to play a first-person anim over the body, and SA's own fire anims only point the gun with SA's aiming IK (12i). What
+UltimateFP shows is SA's ped with its arms held up; here the arms are posed in the bone hook CameraAim already has
+(the matrices built for the draw, 12c): the right hand at a fixed place of the view per kind of gun with the barrel on
+the crosshair, the left hand on a fore-grip point per weapon, both shoulders moved under the eyes and two-bone IK for
+each arm - a rigid move of the arm put the shoulder in front of the lens, and VCS's hip holds leave the left hand
+0.47 m out on a rifle with the palm open (the user: "the left hand floats above the gun ... VCS's own animation").
+Recoil, sway and bob are made in code. The grip points are per weapon type constants measured by eye on the converted
+Immersive Weapons Pack models, not read from the model (a model-derived point would need the clump's geometry; a
+table is enough for the 13 guns). Third person keeps VCS's anims untouched (the support hand IK there would fight
+every hip / fire anim). Rows: Game > First person (Arms and gun in view, gun position right / ahead / up, gun sway).
+In the same change first person keeps the view while getting in and out of vehicles and moves the eyes ahead of the
+collar when looking away from the body (running backwards) - both the user's reports (12t).
+
