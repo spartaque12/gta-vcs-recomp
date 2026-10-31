@@ -24,6 +24,7 @@ cbuffer Draw : register(b0)
                            // w: render-target texel scale y
     int4 blendCPremul;     // C (0 As, 1 Ad, 2 FIX), premultiply (0 none, 1 rgb *= C, 2 rgb *= 1 + C)
     float4 fogColor;       // rgb 0..255
+    float4 jitter;         // xy: a sub-pixel offset of the 3D picture's draws in PS2 pixels (temporal AA: render mods), 0 else
 };
 
 struct VSIn
@@ -51,7 +52,7 @@ struct VSOut
 VSOut vs_main(VSIn i)
 {
     VSOut o;
-    const float2 p = (i.pos.xy + rtOrigin.z) / targetRtFix.xy;
+    const float2 p = (i.pos.xy + rtOrigin.z + jitter.xy) / targetRtFix.xy;
     o.pos = float4(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0, i.pos.z, 1.0);
     o.depth = i.pos.z;
     o.stq = i.stq;
@@ -87,7 +88,7 @@ void nativePosition(float4 S, float4 C, float3 st, inout VSOut o)
     const float2 xy = trunc(s.xy * 16.0) / 16.0 - nat[31].xy;
     const float z = floor(trunc(s.z * 16.0) / 16.0);
     const float depth = min(z * nat[31].z, 1.0);
-    const float2 p = (xy + rtOrigin.z) / targetRtFix.xy;
+    const float2 p = (xy + rtOrigin.z + jitter.xy) / targetRtFix.xy; // the jitter after the 1/16-pixel snapping
     o.pos = float4((p.x * 2.0 - 1.0) * S.w, (1.0 - p.y * 2.0) * S.w, depth * S.w, S.w);
     o.depth = depth;
     o.clip = float2(C.z + C.w, C.w - C.z); // the PS2 clip test's near / far planes

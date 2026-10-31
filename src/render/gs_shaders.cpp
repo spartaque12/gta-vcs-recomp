@@ -29,6 +29,11 @@ using BYTE = unsigned char; // fxc's /Fh headers declare `const BYTE name[]`
 #include "dxbc/present_ps.h"
 #include "dxbc/ui_vs.h"
 #include "dxbc/ui_ps.h"
+#include "dxbc/gs_velocity_mesh_vs.h"
+#include "dxbc/gs_velocity_skinned_vs.h"
+#include "dxbc/gs_velocity_ps.h"
+#include "dxbc/gs_shadow_vs.h"
+#include "dxbc/gs_shadow_ps.h"
 #endif
 #if defined(VCS_HAVE_VULKAN)
 #include "spirv/gs_draw_vs.h"
@@ -56,6 +61,11 @@ using BYTE = unsigned char; // fxc's /Fh headers declare `const BYTE name[]`
 #include "spirv/present_ps.h"
 #include "spirv/ui_vs.h"
 #include "spirv/ui_ps.h"
+#include "spirv/gs_velocity_mesh_vs.h"
+#include "spirv/gs_velocity_skinned_vs.h"
+#include "spirv/gs_velocity_ps.h"
+#include "spirv/gs_shadow_vs.h"
+#include "spirv/gs_shadow_ps.h"
 #endif
 
 namespace render
@@ -84,6 +94,11 @@ namespace render
             {kPresentPS, sizeof(kPresentPS)},
             {kUiVS, sizeof(kUiVS)},
             {kUiPS, sizeof(kUiPS)},
+            {kGsVelocityMeshVS, sizeof(kGsVelocityMeshVS)},
+            {kGsVelocitySkinnedVS, sizeof(kGsVelocitySkinnedVS)},
+            {kGsVelocityPS, sizeof(kGsVelocityPS)},
+            {kGsShadowVS, sizeof(kGsShadowVS)},
+            {kGsShadowPS, sizeof(kGsShadowPS)},
         };
         if (backend == rhi::Backend::D3D11)
             return dxbc;
@@ -110,6 +125,11 @@ namespace render
             {kPresentPS_spv, sizeof(kPresentPS_spv)},
             {kUiVS_spv, sizeof(kUiVS_spv)},
             {kUiPS_spv, sizeof(kUiPS_spv)},
+            {kGsVelocityMeshVS_spv, sizeof(kGsVelocityMeshVS_spv)},
+            {kGsVelocitySkinnedVS_spv, sizeof(kGsVelocitySkinnedVS_spv)},
+            {kGsVelocityPS_spv, sizeof(kGsVelocityPS_spv)},
+            {kGsShadowVS_spv, sizeof(kGsShadowVS_spv)},
+            {kGsShadowPS_spv, sizeof(kGsShadowPS_spv)},
         };
         if (backend == rhi::Backend::Vulkan)
             return spirv;

@@ -23,6 +23,8 @@ namespace render
         rhi::ShaderCode presentPS;
         rhi::ShaderCode uiVS;         // Dear ImGui through the RHI (render/ui_renderer.cpp)
         rhi::ShaderCode uiPS;
+        rhi::ShaderCode velocityMeshVS, velocitySkinnedVS, velocityPS; // per-object motion (shaders/gs_velocity.hlsl)
+        rhi::ShaderCode shadowVS, shadowPS; // shadow maps for render mods (shaders/gs_shadow.hlsl)
     };
 
     // The backend's shaders (empty for the null backend, which never runs them).

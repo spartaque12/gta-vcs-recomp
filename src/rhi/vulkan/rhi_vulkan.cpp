@@ -98,6 +98,7 @@ namespace rhi
             case Format::RGBA8: return VK_FORMAT_R8G8B8A8_UNORM;
             case Format::R32F: return VK_FORMAT_R32_SFLOAT;
             case Format::D32F: return VK_FORMAT_D32_SFLOAT;
+            case Format::RGBA16F: return VK_FORMAT_R16G16B16A16_SFLOAT;
             default: return VK_FORMAT_UNDEFINED;
             }
         }
@@ -491,6 +492,8 @@ namespace rhi
                     usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
                 if (desc.usage & UsageDepth)
                     usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+                if (desc.usage & UsageStorage)
+                    usage |= VK_IMAGE_USAGE_STORAGE_BIT;
                 VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
                 ci.imageType = VK_IMAGE_TYPE_2D;
                 ci.format = t->format;
@@ -1866,8 +1869,21 @@ namespace rhi
                 for (uint32_t i = 0; i < kTextureSlots; ++i)
                 {
                     VkTexture *t = m_textures[i];
-                    if (t && (t == m_passColor || t == m_passDepth || t->samples != VK_SAMPLE_COUNT_1_BIT || t->resting != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
+                    // multisampled textures only in the slots the pipeline declares Texture2DMS (PipelineDesc::multisampledTextures)
+                    const bool msSlot = (m_pipeline->desc.multisampledTextures >> i) & 1u;
+                    if (t && (t == m_passColor || t == m_passDepth || (t->samples != VK_SAMPLE_COUNT_1_BIT) != msSlot ||
+                              t->resting != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL))
                         t = nullptr; // D3D unbinds a texture that is also the target: reads zeros
+                    if (!t && msSlot)
+                    {
+                        // no multisampled dummy to stand in (its view would have to match the shader): the draw is skipped
+                        static bool reported = false;
+                        if (!reported)
+                            std::fprintf(stderr, "[rhi] pipeline '%s': no multisampled texture in slot %u - draw skipped\n",
+                                         m_pipeline->name.c_str(), i);
+                        reported = true;
+                        return false;
+                    }
                     sampled[i] = t ? t : m_dummyTexture.get();
                     if (sampled[i]->layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
                     {

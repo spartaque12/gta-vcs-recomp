@@ -16,7 +16,7 @@ The details are in the docs named in each row; decisions in DECISIONS.md, progre
 | Streamed file override | any streamed file (model, texture dictionary, animation) replaced by `build\mods\stream\<id>.*` (`VCS_MODS_DIR`) | - | on when the folder exists | checked | 12g |
 | Immersive Weapons Pack | the pack's weapon models (only weapons VCS has), then its animations, then the magazine drop, through the override; `tools/weapon_convert.py` | - | - | done: 27 weapon models + the pack's animations for 7 sets installed in build\mods\stream; magazine drop / moving parts not yet | 12g |
 | Project2DFX | distant lights, more stars, distant cars / boats (ThirteenAG's Project2DFX for VCS), and the mod's palms | Game / Graphics, `p2dfx.*` rows | off | done: lights, stars, distant cars checked; boats / flight ceiling not seen; palms + trees installed; Alpha dual pass (Graphics) | game-internals.md 6l |
-| RenderHook-style graphics | AO, tonemapping, sun shadows ... in the native renderer | - | - | parked | RENDERHOOK_PLAN.md |
+| RenderHook-style graphics | gtaRenderHook's features rebuilt on the port's renderer: ground-truth ambient occlusion (GTAO from the game's depth) now; colour grading, sky, sun shadows, lights planned | Graphics > Lighting (RenderHook): Ambient occlusion, Occlusion radius; Graphics > Anti-aliasing (RenderHook): DLAA (NGX build, RTX, D3D11); Lighting: Sun shadows, Shadow distance, Shadow quality | off | milestone 1 (AO) done: checked in hidden runs at 1080p MSAA 4x and 640x448 (before / after shots), 0.5-0.7 ms GPU at 1080p MSAA 4x; Vulkan compiles, not run | RENDERHOOK_PLAN.md |
 | VR (OpenXR, M0) | the game in an OpenXR headset, mono: first person on foot follows the head (CameraAim), the HUD on a panel; menus, cutscenes, third person and vehicles on a cinema screen; frames paced by the headset | Graphics > VR (on, view, cinema distance / width, HUD distance); recentre F7 / Back + L3 | off | checked without a headset (inert without a runtime; a test runtime's eye images); not on a real headset | VR_PLAN.md "M0 as built", game-internals.md 12u |
 | Mesh smoothing (MeshSmooth) | Zeneric's "Peds And Vehs Mesh Smoothed" idea re-implemented: lit model batches refined on the host (PN triangles, crack-free shared normals), cached; key Insert | Graphics > Mesh smoothing (MeshSmooth): Smooth models, Peds, Vehicles, Other lit models, Level, Strength | on (peds); vehicles / others off (experimental) | peds checked (hidden runs, before / after shots, worker +0.3-0.8 ms); vehicles: layers drawn over the original mesh show through | game-internals.md 6m, DECISIONS.md |
 
@@ -29,6 +29,7 @@ The details are in the docs named in each row; decisions in DECISIONS.md, progre
 | Project2DFX (distant lights, stars, distant cars / boats, draw / detail distance, flight ceiling) | `Project2DFX.asi` - VCS-mods `plugins/Project2DFX` (no longer in vcs.exe) | `build\scripts\Project2DFX.asi` (installed); needs `p2dfx\lights.bin` beside vcs.exe as before. "Alpha dual pass" stays in the exe (a renderer setting) |
 | Streamed file override, Immersive Weapons Pack | vcs.exe: `src/game/vcs_stream_override.cpp`; `tools/weapon_convert.py` | built in; next |
 | Texture packs + HD HUD | vcs.exe (upstream PR #8) | built in (part of the port, not a mod to move) |
+| RenderHook-style graphics (ambient occlusion) | `RenderHook.asi` - VCS-mods `plugins/RenderHook` (shaders built with fxc + glslang); vcs.exe gives it the render hooks (`src/modapi/mod_render.cpp`, the renderer's frame hook) | `build\scripts\RenderHook.asi` once vcs.exe has the render hooks; installed with DLAA 2026-10-31 (a vcs.exe without them refuses the mod with a log line) |
 | VR (OpenXR) | `VR.asi` + `openxr_loader.dll` (Khronos, built by VCS-mods' CMake) - VCS-mods `plugins/VR`; vcs.exe gives it the present hook and split layers (`src/modapi/mod_present.cpp`); the head look is CameraAim's export (`CameraAimSetHeadLook`); tests: `xr_test_runtime.dll` (`-DVR_TEST_RUNTIME=ON`, never installed) with `VCS_VR_RUNTIME` | `build\scripts\VR.asi` and `build\scripts\openxr_loader.dll`, with a CameraAim.asi that has the export; needs a vcs.exe with the present hook (older exes: one log line, inert) |
 | Mesh smoothing | `MeshSmooth.asi` - VCS-mods `plugins/MeshSmooth`; vcs.exe gives it the lit refiner (`set_lit_refiner`, `src/game/vcs_hle_world.cpp`); check: `tools/meshsmooth_check.py` | `build\scripts\MeshSmooth.asi` once vcs.exe has the refiner (older exes refuse it with a log line) |
 
@@ -40,6 +41,8 @@ mod API (this folder's, or the fork's `vcs-mods` branch).
 The user plays from `build\vcs.exe`: a build cannot link while it runs, and tests run on a copy of the exe started
 through `VCS_EXE` (hidden, a copy of the card in `build\rig\saves\user`, each tester on its own control port). Check
 `tasklist` for vcs.exe / ninja / clang-cl / lld-link before building; never leave a non-compiling .cpp under `src/`.
+`python tools/exe_copy.py DIR` links such a copy (DIR\vcs.exe, its DLLs and vcs.ini) from the current sources without
+touching the locked build\vcs.exe; the copy's mods go in DIR\scripts.
 
 ## Git
 

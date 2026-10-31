@@ -51,7 +51,36 @@ What the table gives:
   the same Dear ImGui (1.92.7-docking, no imconfig changes) and compares `imgui_version_num` and the `imgui_sizeof_*`
   fields with its own before using it.
 - **Control channel and log**: `add_command` (a rig / gamectl command answered with one line), `log`, `game_dir`.
-
+- **Rendering** (appended to API 1 on 2026-10-31, check `VCS_MOD_API_HAS(api, render_pop_marker)`; `RenderHook.asi`'s
+  ambient occlusion uses it): `add_render_hook(point, fn, user, flags)` - the main thread, any time (a hook stays until
+  the game ends; add it only when an option needs it: until then nothing in the renderer changes). Point
+  `VCS_RENDER_BEFORE_POST`: the 3D scene is drawn (sky, world, water, peds, vehicles, blob shadows, particles), the game's
+  post effects and the HUD come next. Flags: `VCS_RENDER_NEEDS_DEPTH` (the Z buffer made sampleable),
+  `VCS_RENDER_NEEDS_RESOLVED_COLOR` (a resolved copy of the picture to read). The hook gets a `VcsRenderFrame`: the
+  backend, the picture (`color`, RGBA8, multisampled with MSAA - draw into it), its Z buffer (`depth`: d = GS z / 2^24,
+  0 = nothing drawn; a Texture2DMS with MSAA), the picture's size in target pixels, and the camera - the lens
+  (fx, fy, cx, cy: pixel centre (x + 0.5, y + 0.5) at view depth w is ((x + 0.5 - cx) / fx * w, (y + 0.5 - cy) / fy * w, w)),
+  the Z mapping (w = depth_b / (d / depth_scale - depth_a)) and the world's fog. Inside a hook the mod draws full-screen
+  passes: `render_create_texture` (RGBA8 / R32F render targets), `render_create_constants` / `render_update_constants`,
+  `render_create_pipeline` (vertex + pixel shader bytecode for the backend: DXBC from fxc for D3D11, SPIR-V for Vulkan
+  with the port's bindings bN -> N, tN -> 16 + N, sN -> 32 + N; vertices from SV_VertexID; a blend preset: opaque,
+  multiply (target x output alpha), alpha, add; a write mask; the texture slots declared Texture2DMS),
+  `render_begin_pass` / `render_set_viewport` / `render_set_pipeline` / `render_set_texture` (point or linear, clamped) /
+  `render_set_constants` / `render_draw` / `render_end_pass`, and `render_push_marker` / `render_pop_marker` (GPU time
+  per marker with `PS2X_GPU_TIMING=1`). A pass or marker a hook leaves open is closed for it. The exe's side:
+  `src/modapi/mod_render.cpp` over the RHI; the renderer's frame hook: NATIVE_RENDERER.md "Frame hook for render mods".
+  VCS-mods' CMake has `vcs_mod_shader()` to build one HLSL source into both kinds of header. Temporal AA (appended,
+  `VCS_MOD_API_HAS(api, render_set_jitter)`): `render_set_jitter(phases)` jitters the 3D picture; `VcsRenderFrame` then
+  carries `jitter_x / y`, `prev_jitter_x / y` and `reproject` (check its `size`): the camera's motion as a 4x4 on
+  (u w, v w, z w, w), for motion vectors. For an SDK (appended, `VCS_MOD_API_HAS(api, render_create_texture_ex)`):
+  `render_current_color()` (the picture now, single-sampled, earlier hooks' drawing included), `render_native(what, t)`
+  (D3D11 device / immediate context / a texture's ID3D11Texture2D; NULL on Vulkan), `render_create_texture_ex` with
+  `VCS_RENDER_TEXTURE_STORAGE` (unordered access) and the RGBA16F format. RenderHook.asi's DLAA uses them.
+  Shadows (appended, `VCS_MOD_API_HAS(api, render_shadow_map)`): `VcsRenderFrame.world_to_view` (the camera's rotation
+  in the world, `view_valid`) and, in a hook added with `VCS_RENDER_NEEDS_SHADOW`, `render_shadow_map(view_to_clip,
+  count, size, &drawn)`: the scene's Z-writing native draws depth only into 1-4 square viewports side by side, one
+  view -> clip matrix each (z larger = nearer the light). RenderHook.asi's sun shadows use them; the sun itself is game
+  memory (game-internals.md 6n).
 - **VR** (appended to API 1 on 2026-11-01, check `VCS_MOD_API_HAS(api, present_window_copy)`; `VR.asi` uses it,
   docs/VR_PLAN.md M0): `add_present_hook(fn, user)` - the main thread, once per host frame, after the window's picture
   and Dear ImGui are drawn and right before the swapchain presents (`present::present()`, src/render/presenter.cpp): where
@@ -89,7 +118,8 @@ table, and the exe's side of the coupling: `registerPlugins()` in main.cpp's set
 `registerSlot("graphics")` later in it), `install()` /
 `installLate()` in `game/vcs_overrides.cpp` applyVcs, `drawCallbacks()` in the UI hook,
 `lookActive()` / `look()` in `game/vcs_input.cpp`, `registerHotkeySettings()` there and `pollHotkeys()` in
-`ui/trainer_menu.cpp`. A mod is never unloaded.
+`ui/trainer_menu.cpp`; the render hooks in `src/modapi/mod_render.cpp` (through `gsHwSetFrameHook`). A mod is never
+unloaded.
 
 ## Next
 

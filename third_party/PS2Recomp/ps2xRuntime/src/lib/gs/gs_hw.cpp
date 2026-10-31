@@ -111,6 +111,28 @@ void gsHwSetFrameSize(uint32_t width, uint32_t height)
 
 void gsHwSetAspectWidening(float widening) { g_aspectWidening.store(widening, std::memory_order_relaxed); }
 
+// [gta-recomp] gsHwSetFrameHook (gs_hw.h): render mods' passes after a frame's 3D scene (RhiExecutor::runSceneHook)
+namespace
+{
+    std::atomic<GSHwFrameHookFn> g_frameHook{nullptr};
+    std::atomic<void *> g_frameHookUser{nullptr};
+    std::atomic<uint32_t> g_frameHookNeeds{0};
+}
+
+// [gta-recomp] gsHwSetJitter: the sub-pixel jitter sequence of the 3D picture's draws (0: off)
+namespace
+{
+    std::atomic<uint32_t> g_jitterPhases{0};
+}
+void gsHwSetJitter(uint32_t phases) { g_jitterPhases.store(std::min<uint32_t>(phases, 1024u), std::memory_order_relaxed); }
+
+void gsHwSetFrameHook(GSHwFrameHookFn fn, void *user, uint32_t needs)
+{
+    g_frameHookUser.store(user, std::memory_order_relaxed);
+    g_frameHookNeeds.store(needs, std::memory_order_relaxed);
+    g_frameHook.store(fn, std::memory_order_release);
+}
+
 // [gta-recomp] gsHwShownInputNs (gs_hw.h)
 static int64_t steadyNs()
 {
@@ -604,6 +626,7 @@ namespace
         float rtOrigin[4];
         int32_t blendCPremul[4];
         float fogColor[4];
+        float jitter[4]; // [gta-recomp] the 3D picture's sub-pixel offset in PS2 pixels (gsHwSetJitter), 0 else
     };
 
     struct QuadConstants // render/shaders/gs_util.hlsl, cbuffer Quad
@@ -813,6 +836,9 @@ namespace
             for (size_t ci = 0; ci < f.cmds.size(); ++ci)
             {
                 const Cmd &c = f.cmds[ci];
+                // [gta-recomp] the frame hook's point (gsHwSetFrameHook): after the 3D scene, before its post effects
+                if (m_scene.armed || m_scene.done)
+                    sceneStep(f, c, logDraws);
                 // [gta-recomp] VCS's bloom / trails chains as native passes (nativePost): the commands it took are done
                 if (c.type == CmdType::Draw)
                     if (const size_t taken = nativePost(f, ci, logDraws))
@@ -958,6 +984,7 @@ namespace
                                      (unsigned long long)n.meshKey, n.s.fbp, n.s.zbp, n.s.tme, n.s.abe, n.s.fge);
                     hudSceneDraw(n.s.fbp);
                     sources.nativeDraw();
+                    sceneNote(f, n); // [gta-recomp] the frame hook's 3D scene, camera and per-object motion
                     const bool timed = gpuTimingMarkers();
                     if (timed)
                     {
@@ -1274,7 +1301,8 @@ namespace
             d.width = std::max(1u, px(static_cast<float>(w), s.x));
             d.height = std::max(1u, px(static_cast<float>(h), s.y));
             d.format = depth ? rhi::Format::D32F : rhi::Format::RGBA8;
-            d.usage = depth ? rhi::UsageDepth : (rhi::UsageRenderTarget | rhi::UsageSampled);
+            // [gta-recomp] a depth buffer the frame hook reads is sampleable (sampledDepth)
+            d.usage = depth ? (rhi::UsageDepth | (sampledDepth() ? rhi::UsageSampled : 0u)) : (rhi::UsageRenderTarget | rhi::UsageSampled);
             d.name = depth ? "gs depth" : "gs target";
             // [gta-recomp] a colour target of this size given back by a drop or a growth (spareTarget), cleared below like
             // a new one: VCS drops its effect buffers every frame (a CLUT uploaded into them), and each re-creation was a
@@ -1424,6 +1452,9 @@ namespace
             {
                 if ((key & 0x3FFFFFFFu) != f.zbp || !d.tex)
                     continue;
+                // [gta-recomp] made before the frame hook asked for a sampleable one: re-made (cleared) at the frame's Z clear
+                if (sampledDepth() && !(d.tex->desc().usage & rhi::UsageSampled))
+                    d.tex = makeTarget(d.w, d.h, true, d.scale, d.tex->desc().samples);
                 const uint32_t y0 = px(static_cast<float>(f.y0), d.scale.y);
                 fill(nullptr, d.tex.get(), 0, y0, px(static_cast<float>(f.width), d.scale.x), px(static_cast<float>(f.y1), d.scale.y) - y0,
                      {0, 0, 0, 0}, f.value);
@@ -1992,6 +2023,916 @@ namespace
             return tint ? 3u : 2u;
         }
 
+        // ---- [gta-recomp] The frame hook (gsHwSetFrameHook; docs/NATIVE_RENDERER.md "Frame hook for render mods") ---------
+        // Its point is the end of a frame's 3D scene. VCS draws the sky, the world (native), the water, the sky's self-copy,
+        // the reflection map, then peds and vehicles (native lit models) with their environment pass, blob shadows and
+        // particles - and only then reads the finished picture for its post effects (game-internals.md 6g). A native draw
+        // into a picture target (640 wide, depth-tested) arms the point; the hook runs before the first of: the bloom /
+        // trails downsample (a read of the picture across a 256- / 512-wide buffer), the motion blur's 1:1 blend of the
+        // previous picture into it, its Z-only clear before the HUD. The next frame's Z clear, the copy of the finished
+        // picture out or a drop of the picture ends a frame that got none (counted as missed).
+
+        struct SceneLens // a camera's focal lengths and centre (PS2 pixels)
+        {
+            float fx = 0.0f, fy = 0.0f, cx = 0.0f, cy = 0.0f;
+        };
+
+        // The hook reads the Z buffer (GSHwFrameHookDepth): depth buffers are made sampleable from then on - sticky, since on
+        // Vulkan a sampleable one changes layout around every pass.
+        bool sampledDepth()
+        {
+            if (!m_sampledDepth && g_frameHook.load(std::memory_order_acquire) &&
+                (g_frameHookNeeds.load(std::memory_order_relaxed) & GSHwFrameHookDepth))
+                m_sampledDepth = true;
+            return m_sampledDepth;
+        }
+
+        void sceneNote(const Frame &f, const NativeDrawCmd &n)
+        {
+            if (m_scene.done || n.s.fbw != 10u || !n.s.zte || n.s.zbp == n.s.fbp || !g_frameHook.load(std::memory_order_acquire))
+                return;
+            if (!m_scene.armed)
+            {
+                m_scene.armed = true;
+                m_scene.fbp = n.s.fbp;
+                m_scene.zbp = n.s.zbp;
+                m_scene.depthMap = m_scene.fog = false;
+                m_scene.candidateCount = 0;
+                m_sceneMats.clear();
+                ++m_sceneSerial;
+                m_velDraws.clear();
+                m_velMeshCur.clear();
+                m_velSkinCur.clear();
+                m_velSkinVerts.clear();
+                m_shadowDraws.clear();
+                m_shadowVerts.clear();
+            }
+            if (n.s.fbp != m_scene.fbp || n.s.zbp != m_scene.zbp)
+                return;
+            if (m_scene.candidateCount < std::size(m_scene.candidates))
+                sceneCamera(n);
+            // static world meshes for the camera reprojection (sceneReprojection)
+            if (n.kind == GSNativeDraw::VcsWorld && !n.transient && m_sceneMats.size() < 8192u)
+            {
+                SceneMatrix &e = m_sceneMats[n.meshKey];
+                if (e.count++ == 0)
+                {
+                    std::memcpy(e.m, n.constants, sizeof(e.m));
+                    e.ofx = n.constants[124];
+                    e.ofy = n.constants[125];
+                }
+            }
+            if (g_frameHookNeeds.load(std::memory_order_relaxed) & GSHwFrameHookVelocity)
+                velocityNote(f, n);
+            if (g_frameHookNeeds.load(std::memory_order_relaxed) & GSHwFrameHookShadow)
+                shadowNote(f, n);
+            // the world's fog (gs_draw.hlsl nativeFog: nat[10] = on, bias, scale per unit of w)
+            if (!m_scene.fog && n.kind == GSNativeDraw::VcsWorld && n.s.fge && n.constants[40] > 0.5f)
+            {
+                m_scene.fogBias = n.constants[41];
+                m_scene.fogScale = n.constants[42];
+                m_scene.fog = true;
+            }
+        }
+
+        // The camera from a native draw's GS window matrix (gs_draw.hlsl nativePosition: S = nat[0] x + nat[1] y + nat[2] z +
+        // nat[3], pixel = S.xy / S.w - XYOFFSET, GS z = S.z / S.w). S.w is the view depth (the VU clip test's near / far
+        // planes are on it); the x / y rows are fx, fy times the camera's right / down axes plus cx, cy times its forward
+        // axis, and the z row a times the forward axis plus b. The Z mapping (a, b) comes out exactly whatever model matrix
+        // is folded in. The lens: the rows make M = K V L (K the lens, V the camera's rotation, L the model's linear part),
+        // and for any L that is a rotation times a scale per axis - the world packets' quantised positions (int16 times a
+        // scale per axis) as much as rigid models - the columns of K^-1 M (the camera-space images of the model's axes) are
+        // orthogonal. With the centre in the picture's middle (RenderWare's view window is centred: 320, 224 GS pixels after
+        // XYOFFSET) that is linear in 1/fx^2 and 1/fy^2: three equations per draw (one per pair of axes), least squares.
+        // A camera along the model's axes (level, or straight down over the axis-aligned world) leaves them degenerate:
+        // no candidate from that draw. (Taking lengths relative to the w row's, as for a uniform scale, gave fy 30-545
+        // instead of 1028 at most spots, 2026-10-31.)
+        void sceneCamera(const NativeDrawCmd &n)
+        {
+            const float *c = n.constants; // column i (S per unit of x, y, z; the translation) = c[4i .. 4i + 3]
+            using V = std::array<double, 3>;
+            auto row = [c](int lane) { return V{c[lane], c[4 + lane], c[8 + lane]}; };
+            auto dot = [](const V &p, const V &q) { return p[0] * q[0] + p[1] * q[1] + p[2] * q[2]; };
+            const V X = row(0), Y = row(1), Z = row(2), W = row(3);
+            const double ww = dot(W, W);
+            if (!(ww > 1e-30))
+                return;
+            const double a = dot(Z, W) / ww, b = c[14] - a * c[15];
+            V rz;
+            for (int i = 0; i < 3; ++i)
+                rz[i] = Z[i] - a * W[i];
+            if (std::sqrt(dot(rz, rz)) > 1e-3 * (std::fabs(a) + 1.0) * std::sqrt(ww) || !(std::fabs(b) > 0.0))
+                return; // not a perspective camera's z row
+            if (!m_scene.depthMap)
+            {
+                m_scene.a = static_cast<float>(a);
+                m_scene.b = static_cast<float>(b);
+                m_scene.zs = c[126];
+                m_scene.depthMap = true;
+            }
+            constexpr double kCentreX = 320.0, kCentreY = 224.0; // the 640x448 picture's middle
+            const double cx = kCentreX + c[124], cy = kCentreY + c[125]; // in the window matrix's coordinates (+ XYOFFSET)
+            static const int kPairs[3][2] = {{0, 1}, {0, 2}, {1, 2}};
+            double eq[3][3], pp = 0.0, pq = 0.0, qq = 0.0, pr = 0.0, qr = 0.0, rr = 0.0, xx = 0.0, yy = 0.0;
+            for (int j = 0; j < 3; ++j)
+            {
+                xx += (X[j] - cx * W[j]) * (X[j] - cx * W[j]);
+                yy += (Y[j] - cy * W[j]) * (Y[j] - cy * W[j]);
+            }
+            for (int e = 0; e < 3; ++e)
+            {
+                const int j = kPairs[e][0], k = kPairs[e][1];
+                eq[e][0] = (X[j] - cx * W[j]) * (X[k] - cx * W[k]); // x 1/fx^2
+                eq[e][1] = (Y[j] - cy * W[j]) * (Y[k] - cy * W[k]); // x 1/fy^2
+                eq[e][2] = W[j] * W[k];                             // + this = 0
+                pp += eq[e][0] * eq[e][0];
+                pq += eq[e][0] * eq[e][1];
+                qq += eq[e][1] * eq[e][1];
+                pr += eq[e][0] * eq[e][2];
+                qr += eq[e][1] * eq[e][2];
+                rr += eq[e][2] * eq[e][2];
+            }
+            // degenerate: the camera's right or down axis along one of the model's (its pairs' products are then rounding
+            // noise, which a scale-free test lets through: fx 833,041 at Fort Baxter facing north, 2026-10-31)
+            const double det = pp * qq - pq * pq;
+            if (!(pp > 1e-6 * xx * xx) || !(qq > 1e-6 * yy * yy) || !(det > 1e-4 * pp * qq) || !(rr > 0.0))
+                return;
+            const double A = (pq * qr - pr * qq) / det, B = (pr * pq - pp * qr) / det;
+            if (!(A > 1.0 / (65536.0 * 65536.0) && A < 1.0 / 256.0 && B > 1.0 / (65536.0 * 65536.0) && B < 1.0 / 256.0))
+                return; // focal lengths from 16 to 65536 GS pixels
+            double residual = 0.0;
+            for (const auto &q : eq)
+                residual += (A * q[0] + B * q[1] + q[2]) * (A * q[0] + B * q[1] + q[2]);
+            if (residual > 1e-6 * (A * A * pp + B * B * qq + rr))
+                return; // not a rotation times a scale per axis (a shear, or a scale across rotated axes)
+            m_scene.candidates[m_scene.candidateCount++] = {static_cast<float>(1.0 / std::sqrt(A)), static_cast<float>(1.0 / std::sqrt(B)),
+                                                             static_cast<float>(kCentreX), static_cast<float>(kCentreY)};
+            // PS2X_HW_FRAME_HOOK_LOG=2: every 5 s one frame's candidates with their draws' matrices
+            static const bool dump = [] {
+                const char *e = std::getenv("PS2X_HW_FRAME_HOOK_LOG");
+                return e && e[0] == '2';
+            }();
+            static auto last = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+            static bool dumping = false;
+            if (dump && m_scene.candidateCount == 1u)
+                dumping = std::chrono::steady_clock::now() - last > std::chrono::seconds(5);
+            if (dumping)
+            {
+                last = std::chrono::steady_clock::now();
+                std::fprintf(stderr,
+                             "[gs-hw] lens candidate %u: kind %u f %.3f %.3f det %.3g res %.3g | X %.5g %.5g %.5g | Y %.5g %.5g %.5g | "
+                             "W %.5g %.5g %.5g\n",
+                             m_scene.candidateCount, n.kind, 1.0 / std::sqrt(A), 1.0 / std::sqrt(B), det / (pp * qq),
+                             residual / (A * A * pp + B * B * qq + rr), X[0], X[1], X[2], Y[0], Y[1], Y[2], W[0], W[1], W[2]);
+            }
+        }
+
+        // The lens most of this frame's candidates agree on (at least two), else the last agreed one.
+        bool sceneLens(SceneLens &out)
+        {
+            auto same = [](const SceneLens &p, const SceneLens &q) {
+                return std::fabs(p.fx - q.fx) <= 2e-3f * q.fx && std::fabs(p.fy - q.fy) <= 2e-3f * q.fy &&
+                       std::fabs(p.cx - q.cx) <= 0.25f && std::fabs(p.cy - q.cy) <= 0.25f;
+            };
+            uint32_t best = 0, bestVotes = 0;
+            for (uint32_t i = 0; i < m_scene.candidateCount; ++i)
+            {
+                uint32_t votes = 0;
+                for (uint32_t j = 0; j < m_scene.candidateCount; ++j)
+                    votes += same(m_scene.candidates[i], m_scene.candidates[j]) ? 1u : 0u;
+                if (votes > bestVotes)
+                {
+                    best = i;
+                    bestVotes = votes;
+                }
+            }
+            if (bestVotes >= 2u)
+            {
+                m_scene.lens = m_scene.candidates[best];
+                m_scene.lensKnown = true;
+                ++m_scene.agreed;
+            }
+            else if (m_scene.lensKnown)
+                ++m_scene.kept;
+            out = m_scene.lens;
+            return m_scene.lensKnown;
+        }
+
+        void sceneStep(const Frame &f, const Cmd &c, bool log)
+        {
+            if (m_scene.armed && c.type == CmdType::Draw)
+            {
+                const HwState &s = f.draws[c.index].s;
+                const bool post = s.tme && s.texIsRt && s.rtFbp == m_scene.fbp && s.fbp != m_scene.fbp && (s.fbw == 4u || s.fbw == 8u) &&
+                                  s.scx1 + 1u >= s.fbw * 48u; // across the buffer: not the reflection map's 128x128 corner
+                const bool blur = s.fbp == m_scene.fbp && s.tme && s.texIsRt && s.rtFull && s.rtFbp != m_scene.fbp && s.abe;
+                const bool zClear = s.fbp == m_scene.fbp && s.fbmsk == 0xFFFFFFFFu && s.zte && !s.zmsk;
+                if (post || blur || zClear)
+                {
+                    runSceneHook(log);
+                    return;
+                }
+            }
+            bool next = false;
+            if (c.type == CmdType::DepthFill)
+                next = f.depthFills[c.index].zbp == m_scene.zbp;
+            else if (c.type == CmdType::RtDrop)
+                next = f.rtDrops[c.index] == m_scene.fbp;
+            else if (c.type == CmdType::Draw)
+            {
+                const HwState &s = f.draws[c.index].s; // the finished picture copied into the shown buffer
+                next = s.tme && s.texIsRt && s.rtFbp == m_scene.fbp && s.fbp != m_scene.fbp && s.fbw == 10u && !s.abe;
+            }
+            if (next)
+            {
+                if (m_scene.armed)
+                    ++m_scene.missed;
+                m_scene.armed = m_scene.done = false;
+                advanceJitter(); // [gta-recomp] a new frame: the next sub-pixel offset
+            }
+        }
+
+        // [gta-recomp] Temporal AA's jitter (gsHwSetJitter): at each frame's start the next point of the Halton (2, 3) sequence of
+        // `phases` points, in target pixels -0.5 .. 0.5; off: 0, the draws where they always were.
+        void advanceJitter()
+        {
+            m_prevJitter[0] = m_jitter[0];
+            m_prevJitter[1] = m_jitter[1];
+            const uint32_t phases = g_jitterPhases.load(std::memory_order_relaxed);
+            if (!phases)
+            {
+                m_jitter[0] = m_jitter[1] = 0.0f;
+                return;
+            }
+            const uint32_t i = m_jitterIndex++ % phases + 1u;
+            auto halton = [](uint32_t k, uint32_t base) {
+                float f = 1.0f, r = 0.0f;
+                for (; k; k /= base)
+                {
+                    f /= static_cast<float>(base);
+                    r += f * static_cast<float>(k % base);
+                }
+                return r;
+            };
+            m_jitter[0] = halton(i, 2u) - 0.5f;
+            m_jitter[1] = halton(i, 3u) - 0.5f;
+        }
+
+        // [gta-recomp] Camera reprojection for temporal AA's motion vectors. A static mesh drawn in this frame and the last with
+        // the same model matrix has S_prev = M_prev M_cur^-1 S_cur whatever that model is (M = the window matrix, GS
+        // coordinates), so R = M_prev M_cur^-1 is the camera's motion. Meshes drawn once in both frames are candidates (a
+        // moving object's mesh gives another R); the R at least two agree on wins, else the last agreed one, and only
+        // between consecutive frames. Out (row-major): Q = (to the last frame's target pixels) R (from this frame's), applied
+        // to h = (u w, v w, z w, w) - (u, v) the unjittered target position, z the GS z, w the view depth.
+        bool sceneReprojection(Scale sc, float o, float out[16])
+        {
+            using M4 = std::array<double, 16>; // row-major
+            auto fromColumns = [](const float *c) {
+                M4 m{};
+                for (int r = 0; r < 4; ++r)
+                    for (int k = 0; k < 4; ++k)
+                        m[r * 4 + k] = c[k * 4 + r];
+                return m;
+            };
+            auto mul = [](const M4 &a, const M4 &b) {
+                M4 m{};
+                for (int r = 0; r < 4; ++r)
+                    for (int k = 0; k < 4; ++k)
+                        for (int j = 0; j < 4; ++j)
+                            m[r * 4 + k] += a[r * 4 + j] * b[j * 4 + k];
+                return m;
+            };
+            auto invert = [](M4 a, M4 &inv) {
+                inv = M4{};
+                for (int i = 0; i < 4; ++i)
+                    inv[i * 5] = 1.0;
+                for (int col = 0; col < 4; ++col)
+                {
+                    int piv = col;
+                    for (int r = col + 1; r < 4; ++r)
+                        if (std::fabs(a[r * 4 + col]) > std::fabs(a[piv * 4 + col]))
+                            piv = r;
+                    if (!(std::fabs(a[piv * 4 + col]) > 1e-300))
+                        return false;
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        std::swap(a[col * 4 + k], a[piv * 4 + k]);
+                        std::swap(inv[col * 4 + k], inv[piv * 4 + k]);
+                    }
+                    const double d = a[col * 4 + col];
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        a[col * 4 + k] /= d;
+                        inv[col * 4 + k] /= d;
+                    }
+                    for (int r = 0; r < 4; ++r)
+                        if (r != col)
+                        {
+                            const double f = a[r * 4 + col];
+                            for (int k = 0; k < 4; ++k)
+                            {
+                                a[r * 4 + k] -= f * a[col * 4 + k];
+                                inv[r * 4 + k] -= f * inv[col * 4 + k];
+                            }
+                        }
+                }
+                return true;
+            };
+            const bool consecutive = m_prevSceneSerial + 1u == m_sceneSerial;
+            M4 cand[32];
+            uint32_t n = 0;
+            float ofx = 0.0f, ofy = 0.0f, pofx = 0.0f, pofy = 0.0f;
+            if (consecutive)
+                for (const auto &[key, cur] : m_sceneMats)
+                {
+                    if (n >= std::size(cand))
+                        break;
+                    auto prev = m_prevSceneMats.find(key);
+                    if (cur.count != 1u || prev == m_prevSceneMats.end() || prev->second.count != 1u)
+                        continue;
+                    M4 inv;
+                    if (!invert(fromColumns(cur.m), inv))
+                        continue;
+                    cand[n++] = mul(fromColumns(prev->second.m), inv);
+                    ofx = cur.ofx, ofy = cur.ofy, pofx = prev->second.ofx, pofy = prev->second.ofy;
+                }
+            auto norm = [](const M4 &m) {
+                double s2 = 0.0;
+                for (double v : m)
+                    s2 += v * v;
+                return std::sqrt(s2);
+            };
+            uint32_t best = 0, bestVotes = 0;
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                uint32_t votes = 0;
+                const double tol = 1e-4 * norm(cand[i]);
+                for (uint32_t j = 0; j < n; ++j)
+                {
+                    M4 d;
+                    for (int k = 0; k < 16; ++k)
+                        d[k] = cand[i][k] - cand[j][k];
+                    votes += norm(d) <= tol ? 1u : 0u;
+                }
+                if (votes > bestVotes)
+                {
+                    best = i;
+                    bestVotes = votes;
+                }
+            }
+            m_prevSceneMats.swap(m_sceneMats);
+            m_prevSceneSerial = m_sceneSerial;
+            if (bestVotes >= 2u)
+            {
+                // from this frame's target pixels to GS coordinates, and from the last frame's GS coordinates to its pixels
+                const M4 toGs{1.0 / sc.x, 0, 0, ofx - o, 0, 1.0 / sc.y, 0, ofy - o, 0, 0, 1, 0, 0, 0, 0, 1};
+                const M4 fromGs{sc.x, 0, 0, (o - pofx) * sc.x, 0, sc.y, 0, (o - pofy) * sc.y, 0, 0, 1, 0, 0, 0, 0, 1};
+                const M4 q = mul(fromGs, mul(cand[best], toGs));
+                std::copy(q.begin(), q.end(), m_reproj);
+                m_reprojKnown = true;
+            }
+            else if (!consecutive)
+                m_reprojKnown = false;
+            for (int k = 0; k < 16; ++k)
+                out[k] = static_cast<float>(m_reproj[k]);
+            return m_reprojKnown;
+        }
+
+        // [gta-recomp] Per-object motion for temporal AA (GSHwFrameHookVelocity; docs/RENDERHOOK_PLAN.md "DLAA, step 2"): each
+        // native draw of the scene with the matrix its object had in the last frame. Cached meshes (the static world, rigid
+        // lit models: vehicles, wheels, props) are matched by mesh, draws whose vertices come with the frame (skinned peds)
+        // by kind and vertex count, keeping the last frame's vertices; among several of one mesh (two cars of a model, four
+        // wheels) the last frame's instance whose model origin was nearest on screen (the draw order changes between
+        // frames: matching by order gave the followed car another car's motion, 2026-10-31). Unmatched draws get no
+        // motion (the mod falls back to the camera's reprojection there).
+        struct VelocityDraw
+        {
+            uint64_t meshKey;
+            uint32_t kind, drawCount, skinFirst; // skinFirst: vertex index into the frame's skinned velocity buffer
+            bool transient;
+            float m[16], prev[16];
+            float ofx, ofy, pofx, pofy, zs;
+        };
+        struct VelocityMatrix
+        {
+            float m[16];
+            float ofx, ofy;
+        };
+        struct VelocitySkin
+        {
+            VelocityMatrix mat;
+            std::vector<float> pos; // xyz per vertex
+        };
+        static uint64_t velocityKey(uint64_t a, uint32_t b) { return a * 0x9E3779B97F4A7C15ull + b; }
+        // the model origin on screen (GS pixels): the translation column projected
+        static bool velocityOrigin(const VelocityMatrix &m, float &x, float &y)
+        {
+            if (!(m.m[15] > 1e-6f))
+                return false;
+            x = m.m[12] / m.m[15] - m.ofx;
+            y = m.m[13] / m.m[15] - m.ofy;
+            return true;
+        }
+        // of the last frame's instances, the one nearest on screen to `cur` (unused ones first: each is taken once)
+        template <typename T, typename Matrix>
+        static T *velocityNearest(std::vector<T> &candidates, const VelocityMatrix &cur, Matrix matrixOf)
+        {
+            float cx, cy;
+            if (!velocityOrigin(cur, cx, cy))
+                return nullptr;
+            T *best = nullptr;
+            float bestD = 1e30f;
+            for (T &c : candidates)
+            {
+                float x, y;
+                if (c.used || !velocityOrigin(matrixOf(c), x, y))
+                    continue;
+                const float d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    best = &c;
+                }
+            }
+            if (best)
+                best->used = true;
+            return best;
+        }
+        struct VelocityMeshInstance
+        {
+            VelocityMatrix mat;
+            bool used = false;
+        };
+        struct VelocitySkinInstance
+        {
+            VelocitySkin skin;
+            bool used = false;
+        };
+
+        void velocityNote(const Frame &f, const NativeDrawCmd &n)
+        {
+            if (m_velDraws.size() >= 16384u || !n.drawCount)
+                return;
+            VelocityDraw d{};
+            d.meshKey = n.meshKey;
+            d.kind = n.kind;
+            d.drawCount = n.drawCount;
+            d.transient = n.transient;
+            std::memcpy(d.m, n.constants, sizeof(d.m));
+            d.ofx = n.constants[124];
+            d.ofy = n.constants[125];
+            d.zs = n.constants[126];
+            VelocityMatrix cur;
+            std::memcpy(cur.m, d.m, sizeof(cur.m));
+            cur.ofx = d.ofx;
+            cur.ofy = d.ofy;
+            const VelocityMatrix *was = nullptr;
+            if (!n.transient)
+            {
+                m_velMeshCur[n.meshKey].push_back({cur});
+                if (auto it = m_velMeshPrev.find(n.meshKey); it != m_velMeshPrev.end())
+                    if (VelocityMeshInstance *m = velocityNearest(it->second, cur, [](const VelocityMeshInstance &i) -> const VelocityMatrix & { return i.mat; }))
+                        was = &m->mat;
+            }
+            else
+            {
+                const uint32_t stride = n.kind == GSNativeDraw::VcsLit ? 48u : 32u;
+                if (size_t(n.transientOffset) + size_t(stride) * n.drawCount > f.nativeBytes.size())
+                    return;
+                const uint64_t group = velocityKey(n.kind, n.drawCount);
+                std::vector<VelocitySkinInstance> &list = m_velSkinCur[group];
+                list.push_back({});
+                VelocitySkin &skin = list.back().skin;
+                skin.mat = cur;
+                skin.pos.resize(size_t(n.drawCount) * 3u);
+                for (uint32_t i = 0; i < n.drawCount; ++i)
+                    std::memcpy(&skin.pos[size_t(i) * 3u], f.nativeBytes.data() + n.transientOffset + size_t(i) * stride, 12);
+                auto it = m_velSkinPrev.find(group);
+                if (it == m_velSkinPrev.end())
+                    return;
+                VelocitySkinInstance *prev = velocityNearest(it->second, cur, [](const VelocitySkinInstance &i) -> const VelocityMatrix & { return i.skin.mat; });
+                if (!prev || prev->skin.pos.size() != skin.pos.size())
+                    return;
+                was = &prev->skin.mat;
+                d.skinFirst = static_cast<uint32_t>(m_velSkinVerts.size() / 6u);
+                for (uint32_t i = 0; i < n.drawCount; ++i)
+                {
+                    m_velSkinVerts.insert(m_velSkinVerts.end(), &skin.pos[size_t(i) * 3u], &skin.pos[size_t(i) * 3u] + 3);
+                    m_velSkinVerts.insert(m_velSkinVerts.end(), &prev->skin.pos[size_t(i) * 3u], &prev->skin.pos[size_t(i) * 3u] + 3);
+                }
+            }
+            if (!was)
+                return;
+            std::memcpy(d.prev, was->m, sizeof(d.prev));
+            d.pofx = was->ofx;
+            d.pofy = was->ofy;
+            m_velDraws.push_back(d);
+        }
+
+        rhi::Texture *velocityPass(Scale sc, float o, uint32_t width, uint32_t height, bool consecutive)
+        {
+            m_velMeshPrev.swap(m_velMeshCur);
+            m_velSkinPrev.swap(m_velSkinCur);
+            std::vector<VelocityDraw> draws;
+            draws.swap(m_velDraws);
+            std::vector<float> skinVerts;
+            skinVerts.swap(m_velSkinVerts);
+            if (!width || !height)
+                return nullptr;
+            const render::GsShaders &sh = render::gsShaders(m_dev.backend());
+            if (!m_velPipelines[0])
+            {
+                rhi::PipelineDesc d;
+                d.pixel = sh.velocityPS;
+                d.topology = rhi::Topology::TriangleStrip;
+                d.depth = {true, true, rhi::Compare::GreaterEqual};
+                d.depthClip = false;
+                d.name = "gs velocity";
+                const uint32_t strides[2] = {32u, 48u}; // world, lit meshes
+                for (int i = 0; i < 2; ++i)
+                {
+                    d.vertex = sh.velocityMeshVS;
+                    d.attributes = {{"POSITION", 0, rhi::VertexFormat::Float3, 0}};
+                    d.stride = strides[i];
+                    m_velPipelines[i] = m_dev.createPipeline(d);
+                }
+                d.vertex = sh.velocitySkinnedVS;
+                d.attributes = {{"POSITION", 0, rhi::VertexFormat::Float3, 0}, {"TEXCOORD", 0, rhi::VertexFormat::Float3, 12}};
+                d.stride = 24;
+                m_velPipelines[2] = m_dev.createPipeline(d);
+                m_velCb = m_dev.createBuffer({sizeof(float) * 4u * 11u, rhi::BufferUsage::Constant, true, "gs velocity constants"});
+            }
+            if (!m_velPipelines[0] || !m_velPipelines[1] || !m_velPipelines[2] || !m_velCb)
+                return nullptr;
+            if (!m_velocity || m_velocity->desc().width != width || m_velocity->desc().height != height)
+            {
+                m_velocity = m_dev.createTexture({width, height, rhi::Format::RGBA16F, rhi::UsageRenderTarget | rhi::UsageSampled, "gs velocity"});
+                m_velDepth = m_dev.createTexture({width, height, rhi::Format::D32F, rhi::UsageDepth, "gs velocity depth"});
+            }
+            if (!m_velocity || !m_velDepth)
+                return nullptr;
+            if (!skinVerts.empty())
+            {
+                const size_t bytes = skinVerts.size() * sizeof(float);
+                if (!m_velSkinVb || m_velSkinVbCapacity < bytes)
+                {
+                    m_velSkinVbCapacity = std::max<size_t>(bytes + bytes / 2, 1u << 18);
+                    m_velSkinVb = m_dev.createBuffer({m_velSkinVbCapacity, rhi::BufferUsage::Vertex, true, "gs velocity skinned vertices"});
+                }
+                if (m_velSkinVb)
+                    m_dev.updateBuffer(*m_velSkinVb, skinVerts.data(), bytes);
+            }
+            endPass();
+            rhi::PassDesc p;
+            p.color = m_velocity.get();
+            p.depth = m_velDepth.get();
+            p.clearColor = true;
+            p.clearRgba[3] = 0.0f;
+            p.clearDepth = true;
+            p.clearDepthValue = 0.0f;
+            p.name = "gs velocity";
+            m_dev.beginPass(p);
+            uint32_t drawn = 0;
+            if (consecutive)
+                for (const VelocityDraw &d : draws)
+                {
+                    rhi::Buffer *vb = nullptr;
+                    uint32_t first = 0;
+                    int pipeline = d.kind == GSNativeDraw::VcsLit ? 1 : 0;
+                    if (d.transient)
+                    {
+                        vb = m_velSkinVb.get();
+                        first = d.skinFirst;
+                        pipeline = 2;
+                    }
+                    else if (auto it = m_meshes.find(d.meshKey); it != m_meshes.end())
+                        vb = it->second.get();
+                    if (!vb)
+                        continue;
+                    float c[44];
+                    std::memcpy(c, d.m, sizeof(d.m));
+                    std::memcpy(c + 16, d.prev, sizeof(d.prev));
+                    const float rest[12] = {d.ofx, d.ofy, d.pofx, d.pofy, sc.x, sc.y, o, d.zs,
+                                            static_cast<float>(width) / sc.x, static_cast<float>(height) / sc.y, 0.0f, 0.0f};
+                    std::memcpy(c + 32, rest, sizeof(rest));
+                    m_dev.setPipeline(*m_velPipelines[pipeline]);
+                    m_dev.setVertexBuffer(*vb, 0);
+                    m_dev.updateBuffer(*m_velCb, c, sizeof(c));
+                    m_dev.setConstants(0, *m_velCb);
+                    m_dev.draw(d.drawCount, first);
+                    ++drawn;
+                }
+            m_dev.endPass();
+            m_velDrawn = drawn;
+            m_velCandidates = static_cast<uint32_t>(draws.size());
+            return m_velocity.get();
+        }
+
+        // [gta-recomp] Shadow maps for render mods (GSHwFrameHookShadow; docs/RENDERHOOK_PLAN.md "Sun shadows"): the scene's
+        // native draws that write Z (VCS blends nearly every draw, so blending says nothing), cached meshes by key, skinned
+        // ones with their positions copied; drawn again from the light in shadowPass. Alpha-tested casters are drawn solid
+        // (no texture in this pass).
+        struct ShadowDraw
+        {
+            uint64_t meshKey;
+            uint32_t kind, drawCount, first; // first: vertex index into m_shadowVerts (transient draws)
+            bool transient;
+            float m[16];
+            float ofx, ofy;
+        };
+
+        void shadowNote(const Frame &f, const NativeDrawCmd &n)
+        {
+            if (m_shadowDraws.size() >= 16384u || !n.drawCount || n.s.zmsk)
+                return;
+            ShadowDraw d{};
+            d.meshKey = n.meshKey;
+            d.kind = n.kind;
+            d.drawCount = n.drawCount;
+            d.transient = n.transient;
+            std::memcpy(d.m, n.constants, sizeof(d.m));
+            d.ofx = n.constants[124];
+            d.ofy = n.constants[125];
+            if (n.transient)
+            {
+                const uint32_t stride = n.kind == GSNativeDraw::VcsLit ? 48u : 32u;
+                if (size_t(n.transientOffset) + size_t(stride) * n.drawCount > f.nativeBytes.size())
+                    return;
+                d.first = static_cast<uint32_t>(m_shadowVerts.size() / 3u);
+                for (uint32_t i = 0; i < n.drawCount; ++i)
+                {
+                    float p[3];
+                    std::memcpy(p, f.nativeBytes.data() + n.transientOffset + size_t(i) * stride, 12);
+                    m_shadowVerts.insert(m_shadowVerts.end(), p, p + 3);
+                }
+            }
+            m_shadowDraws.push_back(d);
+        }
+
+        // The camera's rotation in the world from the frame's static world draws: a world packet's window matrix is
+        // M = K V L with L a scale per axis (no rotation), so the columns of K^-1 M (K: the lens; centre + XYOFFSET) are the
+        // world axes in view space times those scales - normalised, they are V's columns. The rotation two draws agree on.
+        bool sceneView(const SceneLens &lens, float out[9])
+        {
+            if (!(lens.fx > 0.0f) || !(lens.fy > 0.0f))
+                return false;
+            using V3 = std::array<double, 3>;
+            std::array<double, 9> cand[16];
+            uint32_t n = 0;
+            for (const auto &[key, e] : m_sceneMats)
+            {
+                if (n >= std::size(cand))
+                    break;
+                const double cx = lens.cx + e.ofx, cy = lens.cy + e.ofy;
+                V3 col[3];
+                bool ok = true;
+                for (int i = 0; i < 3 && ok; ++i)
+                {
+                    const float *c = e.m + i * 4;
+                    col[i] = {(c[0] - cx * c[3]) / lens.fx, (c[1] - cy * c[3]) / lens.fy, c[3]};
+                    const double len = std::sqrt(col[i][0] * col[i][0] + col[i][1] * col[i][1] + col[i][2] * col[i][2]);
+                    ok = len > 1e-9;
+                    for (double &v : col[i])
+                        v /= ok ? len : 1.0;
+                }
+                if (!ok)
+                    continue;
+                auto dot = [](const V3 &a, const V3 &b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; };
+                const V3 cr = {col[0][1] * col[1][2] - col[0][2] * col[1][1], col[0][2] * col[1][0] - col[0][0] * col[1][2],
+                               col[0][0] * col[1][1] - col[0][1] * col[1][0]};
+                if (std::fabs(dot(col[0], col[1])) > 2e-3 || std::fabs(dot(col[0], col[2])) > 2e-3 || std::fabs(dot(col[1], col[2])) > 2e-3 ||
+                    dot(cr, col[2]) < 0.99)
+                    continue; // not a scale per axis (a rotated model), or a mirrored one
+                for (int r = 0; r < 3; ++r)
+                    for (int k = 0; k < 3; ++k)
+                        cand[n][r * 3 + k] = col[k][r];
+                ++n;
+            }
+            uint32_t best = 0, bestVotes = 0;
+            for (uint32_t i = 0; i < n; ++i)
+            {
+                uint32_t votes = 0;
+                for (uint32_t j = 0; j < n; ++j)
+                {
+                    double d = 0.0;
+                    for (int k = 0; k < 9; ++k)
+                        d = std::max(d, std::fabs(cand[i][k] - cand[j][k]));
+                    votes += d < 2e-3 ? 1u : 0u;
+                }
+                if (votes > bestVotes)
+                {
+                    best = i;
+                    bestVotes = votes;
+                }
+            }
+            if (bestVotes < 2u)
+                return false;
+            for (int k = 0; k < 9; ++k)
+                out[k] = static_cast<float>(cand[best][k]);
+            return true;
+        }
+
+        rhi::Texture *shadowPass(const float *viewToClip, uint32_t count, uint32_t size, uint32_t *drawnOut)
+        {
+            if (drawnOut)
+                *drawnOut = 0;
+            if (!count || count > 4u || size < 64u || size > 4096u || !m_shadowLens.fx || !m_shadowLens.fy)
+                return nullptr;
+            const render::GsShaders &sh = render::gsShaders(m_dev.backend());
+            if (!m_shadowPipelines[0])
+            {
+                rhi::PipelineDesc d;
+                d.vertex = sh.shadowVS;
+                d.pixel = sh.shadowPS;
+                d.topology = rhi::Topology::TriangleStrip;
+                d.depth = {true, true, rhi::Compare::GreaterEqual};
+                d.attributes = {{"POSITION", 0, rhi::VertexFormat::Float3, 0}};
+                d.name = "gs shadow";
+                const uint32_t strides[3] = {32u, 48u, 12u}; // world mesh, lit mesh, copied positions
+                for (int i = 0; i < 3; ++i)
+                {
+                    d.stride = strides[i];
+                    m_shadowPipelines[i] = m_dev.createPipeline(d);
+                }
+                m_shadowCb = m_dev.createBuffer({sizeof(float) * 16u, rhi::BufferUsage::Constant, true, "gs shadow constants"});
+            }
+            if (!m_shadowPipelines[0] || !m_shadowPipelines[1] || !m_shadowPipelines[2] || !m_shadowCb)
+                return nullptr;
+            if (!m_shadowMap || m_shadowMap->desc().width != size * count || m_shadowMap->desc().height != size)
+                m_shadowMap = m_dev.createTexture({size * count, size, rhi::Format::D32F, rhi::UsageDepth | rhi::UsageSampled, "gs shadow map"});
+            if (!m_shadowMap)
+                return nullptr;
+            if (!m_shadowVerts.empty())
+            {
+                const size_t bytes = m_shadowVerts.size() * sizeof(float);
+                if (!m_shadowVb || m_shadowVbCapacity < bytes)
+                {
+                    m_shadowVbCapacity = std::max<size_t>(bytes + bytes / 2, 1u << 18);
+                    m_shadowVb = m_dev.createBuffer({m_shadowVbCapacity, rhi::BufferUsage::Vertex, true, "gs shadow vertices"});
+                }
+                if (m_shadowVb)
+                    m_dev.updateBuffer(*m_shadowVb, m_shadowVerts.data(), bytes);
+            }
+            endPass();
+            rhi::PassDesc p;
+            p.depth = m_shadowMap.get();
+            p.depthOnly = true;
+            p.clearDepth = true;
+            p.clearDepthValue = 0.0f;
+            p.name = "gs shadow";
+            m_dev.beginPass(p);
+            uint32_t drawn = 0;
+            for (uint32_t c = 0; c < count; ++c)
+            {
+                m_dev.setViewport(static_cast<float>(c * size), 0.0f, static_cast<float>(size), static_cast<float>(size));
+                m_dev.setScissor(static_cast<int>(c * size), 0, static_cast<int>(size), static_cast<int>(size));
+                const float *L = viewToClip + c * 16u;
+                for (const ShadowDraw &d : m_shadowDraws)
+                {
+                    rhi::Buffer *vb = nullptr;
+                    uint32_t first = 0;
+                    int pipeline = d.kind == GSNativeDraw::VcsLit ? 1 : 0;
+                    if (d.transient)
+                    {
+                        vb = m_shadowVb.get();
+                        first = d.first;
+                        pipeline = 2;
+                    }
+                    else if (auto it = m_meshes.find(d.meshKey); it != m_meshes.end())
+                        vb = it->second.get();
+                    if (!vb)
+                        continue;
+                    // view = K^-1 S (x = (Sx - cx Sw) / fx, y = (Sy - cy Sw) / fy, z = Sw), S = M (p, 1): rows of C = K^-1 M
+                    const double cx = m_shadowLens.cx + d.ofx, cy = m_shadowLens.cy + d.ofy;
+                    double C[4][4] = {};
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        const float *col = d.m + k * 4;
+                        C[0][k] = (col[0] - cx * col[3]) / m_shadowLens.fx;
+                        C[1][k] = (col[1] - cy * col[3]) / m_shadowLens.fy;
+                        C[2][k] = col[3];
+                    }
+                    C[3][3] = 1.0;
+                    float rows[16];
+                    for (int r = 0; r < 4; ++r)
+                        for (int k = 0; k < 4; ++k)
+                        {
+                            double v = 0.0;
+                            for (int j = 0; j < 4; ++j)
+                                v += L[r * 4 + j] * C[j][k];
+                            rows[r * 4 + k] = static_cast<float>(v);
+                        }
+                    m_dev.setPipeline(*m_shadowPipelines[pipeline]);
+                    m_dev.setVertexBuffer(*vb, 0);
+                    m_dev.updateBuffer(*m_shadowCb, rows, sizeof(rows));
+                    m_dev.setConstants(0, *m_shadowCb);
+                    m_dev.draw(d.drawCount, first);
+                    ++drawn;
+                }
+            }
+            m_dev.endPass();
+            if (drawnOut)
+                *drawnOut = drawn;
+            m_shadowDrawn = drawn;
+            return m_shadowMap.get();
+        }
+
+        static rhi::Texture *hookShadowMap(void *self, const float *viewToClip, uint32_t count, uint32_t size, uint32_t *drawn)
+        {
+            auto *e = static_cast<RhiExecutor *>(self);
+            return e->m_hookRt ? e->shadowPass(viewToClip, count, size, drawn) : nullptr;
+        }
+
+        // GSHwFrameView::currentColor: the picture with what the hooks drew so far, single-sampled
+        static rhi::Texture *hookCurrentColor(void *self)
+        {
+            auto *e = static_cast<RhiExecutor *>(self);
+            if (!e->m_hookRt || !e->m_hookRt->color)
+                return nullptr;
+            e->endPass();
+            e->m_hookRt->dirty = true;
+            return &e->readable(*e->m_hookRt);
+        }
+
+        void runSceneHook(bool log)
+        {
+            m_scene.armed = false;
+            m_scene.done = true;
+            const GSHwFrameHookFn fn = g_frameHook.load(std::memory_order_acquire);
+            auto it = m_rts.find(m_scene.fbp);
+            if (!fn || it == m_rts.end() || !it->second.color)
+                return;
+            Rt &rt = it->second;
+            const uint32_t needs = g_frameHookNeeds.load(std::memory_order_relaxed);
+            endPass();
+            GSHwFrameView v;
+            v.device = &m_dev;
+            v.color = rt.color.get();
+            if (needs & GSHwFrameHookResolvedColor)
+                v.colorResolved = &readable(rt);
+            // the Z buffer the frame's draws bound (depthFor's key), once made sampleable
+            const bool frameScale = m_frameScale.x > 0.0f && rt.scale == m_frameScale;
+            auto d = m_depth.find(m_scene.zbp | (frameScale ? 0x80000000u : 0u) | (rt.samples > 1u ? 0x40000000u : 0u));
+            if ((needs & GSHwFrameHookDepth) && d != m_depth.end() && d->second.tex && (d->second.tex->desc().usage & rhi::UsageSampled))
+                v.depth = d->second.tex.get();
+            v.width = std::min(px(640.0f, rt.scale.x), rt.color->desc().width);
+            v.height = std::min(px(448.0f, rt.scale.y), rt.color->desc().height);
+            // in target pixels: PS2 pixel X is drawn at (X + pixel-centre offset) x scale
+            const float o = pixelCentreOffset();
+            SceneLens lens;
+            v.camera = sceneLens(lens) && m_scene.depthMap;
+            v.fx = lens.fx * rt.scale.x;
+            v.fy = lens.fy * rt.scale.y;
+            v.cx = (lens.cx + o) * rt.scale.x;
+            v.cy = (lens.cy + o) * rt.scale.y;
+            v.depthA = m_scene.a;
+            v.depthB = m_scene.b;
+            v.depthScale = m_scene.zs;
+            if (m_scene.fog)
+            {
+                v.fogBias = m_scene.fogBias;
+                v.fogScale = m_scene.fogScale;
+            }
+            v.frame = ++m_scene.ran;
+            m_hookRt = &rt;
+            v.currentColor = &RhiExecutor::hookCurrentColor;
+            v.currentColorCtx = this;
+            v.jitterX = m_jitter[0];
+            v.jitterY = m_jitter[1];
+            v.prevJitterX = m_prevJitter[0];
+            v.prevJitterY = m_prevJitter[1];
+            const bool consecutiveVelocity = m_prevSceneSerial + 1u == m_sceneSerial; // (sceneReprojection moves it on)
+            v.viewKnown = v.camera && sceneView(lens, v.worldToView); // (before sceneReprojection moves the matrices on)
+            m_shadowLens = v.camera ? lens : SceneLens{};
+            if (needs & GSHwFrameHookShadow)
+                v.shadowMap = &RhiExecutor::hookShadowMap;
+            v.reprojectValid = sceneReprojection(rt.scale, o, v.reproject);
+            if (needs & GSHwFrameHookVelocity)
+                v.velocity = velocityPass(rt.scale, o, v.width, v.height, consecutiveVelocity);
+            m_dev.pushMarker("frame hook");
+            fn(g_frameHookUser.load(std::memory_order_relaxed), v);
+            m_hookRt = nullptr;
+            m_dev.popMarker();
+            rt.dirty = true; // drawn into: a multisampled picture is resolved again for its next read
+            // PS2X_HW_FRAME_HOOK_LOG=1: every 5 s the hook's frames and the camera it was given
+            static const bool hookLog = std::getenv("PS2X_HW_FRAME_HOOK_LOG") != nullptr;
+            static auto last = std::chrono::steady_clock::now();
+            if ((hookLog && std::chrono::steady_clock::now() - last > std::chrono::seconds(5)) || log)
+            {
+                last = std::chrono::steady_clock::now();
+                std::fprintf(stderr,
+                             "[gs-hw] frame hook: %llu run, %llu frames missed; lens agreed in %llu, kept in %llu (%u candidates "
+                             "now); fbp %u zbp %u %ux%u colour x%u depth %s; camera %d f %.2f %.2f c %.2f %.2f z = %.3f + %.1f / w "
+                             "(scale %g) fog %.2f %+.5f w; motion: %u object draws of %u matched; view %d; shadow casters %zu, %u drawn\n",
+                             static_cast<unsigned long long>(m_scene.ran), static_cast<unsigned long long>(m_scene.missed),
+                             static_cast<unsigned long long>(m_scene.agreed), static_cast<unsigned long long>(m_scene.kept),
+                             m_scene.candidateCount, m_scene.fbp, m_scene.zbp, v.width, v.height, rt.samples,
+                             v.depth ? (v.depth->desc().samples > 1u ? "sampled (MS)" : "sampled") : "none", v.camera ? 1 : 0, v.fx,
+                             v.fy, v.cx, v.cy, v.depthA, v.depthB, v.depthScale, v.fogBias, v.fogScale, m_velDrawn, m_velCandidates,
+                             v.viewKnown ? 1 : 0, m_shadowDraws.size(), m_shadowDrawn);
+            }
+        }
+
         // the HUD layers' bookkeeping for a draw into the frame's buffers: a new scene makes the target's layer stale; a
         // plain copy of another buffer takes its HUD along (VCS draws into one buffer and copies the finished frame into
         // the displayed one at the start of the next)
@@ -2282,6 +3223,13 @@ namespace
             c.fogColor[0] = s.fogR;
             c.fogColor[1] = s.fogG;
             c.fogColor[2] = s.fogB;
+            // [gta-recomp] temporal AA's jitter (gsHwSetJitter): the 3D picture's own draws - native or GS, into a 640-wide
+            // target, not reading a render target (copies, the sky's self-copy) - never layers or post passes
+            if (!layer && !s.texIsRt && s.fbw == 10u && (m_jitter[0] != 0.0f || m_jitter[1] != 0.0f))
+            {
+                c.jitter[0] = m_jitter[0] / targetScale.x;
+                c.jitter[1] = m_jitter[1] / targetScale.y;
+            }
 
             GsBlend b;
             if (!gsBlend(s, b))
@@ -2410,6 +3358,58 @@ namespace
         uint64_t m_feedbackReported = 0;
         bool m_inPass = false;
         rhi::Texture *m_passColor = nullptr, *m_passDepth = nullptr;
+        // [gta-recomp] The frame hook (gsHwSetFrameHook, sceneStep): the 3D scene of the frame being drawn
+        struct SceneHook
+        {
+            bool armed = false; // native 3D drawn into the picture since the frame began, the hook not run yet
+            bool done = false;  // run in this frame (until the next frame's Z clear / frame copy)
+            uint32_t fbp = 0, zbp = 0;
+            bool depthMap = false, fog = false; // taken from this frame's native draws
+            float a = 0.0f, b = 0.0f, zs = 0.0f; // the Z mapping, GS z units
+            float fogBias = 255.0f, fogScale = 0.0f;
+            SceneLens candidates[24]; // lenses of this frame's draws (sceneCamera): the one several agree on is the camera's
+            uint32_t candidateCount = 0;
+            bool lensKnown = false; // `lens`: the last one draws agreed on (it changes only with the field of view)
+            SceneLens lens;
+            uint64_t ran = 0, missed = 0, agreed = 0, kept = 0; // counts (PS2X_HW_FRAME_HOOK_LOG)
+        };
+        SceneHook m_scene;
+        bool m_sampledDepth = false; // depth buffers are made sampleable (sampledDepth)
+        // [gta-recomp] temporal AA (gsHwSetJitter, advanceJitter): this frame's and the last frame's offsets (target pixels)
+        float m_jitter[2] = {0.0f, 0.0f}, m_prevJitter[2] = {0.0f, 0.0f};
+        uint32_t m_jitterIndex = 0;
+        // [gta-recomp] camera reprojection (sceneReprojection): the window matrices of this / the last frame's static world
+        // draws by mesh (count 2+: drawn more than once, ambiguous)
+        struct SceneMatrix
+        {
+            float m[16];    // the native draw's columns 0..3 (S = c0 x + c1 y + c2 z + c3)
+            float ofx, ofy; // XYOFFSET (pixels)
+            uint32_t count = 0;
+        };
+        std::unordered_map<uint64_t, SceneMatrix> m_sceneMats, m_prevSceneMats;
+        uint64_t m_sceneSerial = 0, m_prevSceneSerial = 0;
+        bool m_reprojKnown = false;
+        // [gta-recomp] per-object motion (velocityNote / velocityPass)
+        std::vector<VelocityDraw> m_velDraws;
+        std::unordered_map<uint64_t, std::vector<VelocityMeshInstance>> m_velMeshCur, m_velMeshPrev; // by mesh key
+        std::unordered_map<uint64_t, std::vector<VelocitySkinInstance>> m_velSkinCur, m_velSkinPrev; // by kind + vertex count
+        std::vector<float> m_velSkinVerts; // matched skinned draws' vertices: this frame xyz, the last frame xyz
+        std::unique_ptr<rhi::Pipeline> m_velPipelines[3]; // world mesh, lit mesh, skinned
+        std::unique_ptr<rhi::Buffer> m_velCb, m_velSkinVb;
+        size_t m_velSkinVbCapacity = 0;
+        std::unique_ptr<rhi::Texture> m_velocity, m_velDepth;
+        uint32_t m_velDrawn = 0, m_velCandidates = 0;
+        Rt *m_hookRt = nullptr; // the picture's target while the hook runs (hookCurrentColor)
+        // [gta-recomp] shadow maps (shadowNote / shadowPass)
+        std::vector<ShadowDraw> m_shadowDraws;
+        std::vector<float> m_shadowVerts; // transient casters' positions
+        std::unique_ptr<rhi::Pipeline> m_shadowPipelines[3]; // world mesh, lit mesh, copied positions
+        std::unique_ptr<rhi::Buffer> m_shadowCb, m_shadowVb;
+        size_t m_shadowVbCapacity = 0;
+        std::unique_ptr<rhi::Texture> m_shadowMap;
+        SceneLens m_shadowLens;
+        uint32_t m_shadowDrawn = 0;
+        double m_reproj[16] = {}; // the last agreed reprojection (target pixels), kept for frames without agreement
     };
 
     // ------------------------------------------------------------------------------------------------------

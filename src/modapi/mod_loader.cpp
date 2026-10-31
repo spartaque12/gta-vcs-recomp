@@ -2,6 +2,7 @@
 #include "modapi/mod_loader.h"
 
 #include "modapi/mod_present.h"
+#include "modapi/mod_render.h"
 #include "modapi/vcs_mod_api.h"
 
 #include "game/vcs_freecam.h"
@@ -279,6 +280,7 @@ namespace vcs::modapi
             a.game_dir = &apiGameDir;
             a.register_function = &apiRegister;
             a.has_function = &apiHas;
+            render::fillApi(a); // add_render_hook, render_* (modapi/mod_render.cpp)
             a.set_lit_refiner = [](VcsLitRefineFn fn, void *user) {
                 vcs::hleworld::setLitRefiner(reinterpret_cast<const void *>(fn), user);
             };

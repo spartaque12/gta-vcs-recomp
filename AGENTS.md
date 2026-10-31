@@ -104,6 +104,8 @@ python tools/jiggle_check.py [OUT]                            # jiggle physics (
 python tools/gore_check.py [OUT]                              # dismemberment: stumps, blood
 python tools/blindfire_check.py [OUT]                         # catching falls, firing back from the ground
 python tools/footik_check.py [OUT]                            # Foot IK: feet on slopes and stairs
+python tools/renderhook_check.py [OUT] --asi RenderHook.asi [--exe DIR\vcs.exe] [--small]  # RenderHook.asi's AO: shots + checks
+python tools/exe_copy.py DIR                                  # link a private DIR\vcs.exe while build\vcs.exe is in use (VCS_EXE)
 python tools/irxdis.py --decompile X.IRX OUT.c                # an IOP module as C (headless Ghidra; analysis only)
 python tools/eedecomp.py 0x2f7d58 [...] [--out FILE]          # game functions as C (the analysed EE project; analysis only)
 ```

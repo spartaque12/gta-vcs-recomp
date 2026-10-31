@@ -717,6 +717,25 @@ the next (30 fps). In order:
 8. Blend with the previous picture: FBP 0 -> 140 at FIX 16 (motion blur), alpha-only clear.
 9. HUD / text at the far plane; the cinematic bars (zero height when closed) and text boxes (alpha 0x40).
 
+**Where the lit models come (corrected 2026-10-31**, a frame dump on the user's card copy, `build\run\ao_explore.log`):
+step 3's native 3D is the *world* only (kind 1, the prelit pipeline: sectors and buildings), then the water (large
+blended draws with Z writes), the self-copy (4) and the reflection map (5); **peds and vehicles (native kind 2, the lit
+pipeline) are drawn after the reflection map** - vehicles need it for their environment pass - followed by blob-shadow /
+particle sprites (no Z writes), and only then the bloom. So the whole opaque 3D scene is in the Z buffer at the bloom's
+first read of FBP 140 (its downsample into a 256-wide buffer; the reflection map reads 140 into a 128x128 corner of 420
+first) - the point where render mods' screen-space passes run (NATIVE_RENDERER.md "Frame hook for render mods").
+
+**The Z buffer's mapping and the camera's lens** (2026-10-31, from the native draws' window matrices, `sceneCamera` in
+gs_hw.cpp): GS z = a + b / w with w the view depth in metres, a = 10424, b = 115,600-115,700 (both near-constant across
+places; the GS z at the 0.3 m near plane is ~395,800 and at 2000 m ~10,480 of Z24's 16.7M - reversed, cleared to 0 = far).
+Each draw's folded matrix is M = K V L: many world packets have L = a scale per axis (int16 positions,
+game-internals 6d "42: position scale") times a placement, so M alone cannot tell the lens (fx, fy) from a squashed model
+- but the camera-space images of the model's axes are orthogonal for any such L, which fixes fx and fy with the centre at
+(320, 224). At 16:9 the lens is fx = fy = 1028.3 target pixels at 1920x1080 (the 70-degree FOV, Hor+: tan = 0.933 x
+0.525); **in the hospital tutorial's scripted camera fy is 964, 15/16 of that, fx unchanged** - a 5:3 view window (one
+of FUN_002653f0's aspect choices) instead of 16:9, so that shot is squashed vertically by 6% on a 16:9 screen (not
+investigated further; the display code's Hor+ follows the aspect global).
+
 **The post effects' exact draws** (2026-10-23, noon outside the barracks, 640x448 4:3, `PS2X_HW_DUMP_ALLVERTS=1`;
 UV mapping per primitive fitted from the vertices, u = du/dx * x + offset in texels, x the GS position):
 - Copy 140 -> 0 (frame start) and motion blur 0 -> 140 (`(Cs-Cd)*16/128 + Cd`): bilinear, **u = x + 0.5,
@@ -1228,6 +1247,24 @@ model and were not used).
   of another layer (an orange rust / dirt shape on the trunk) and the licence plate greyed out: some layers of a vehicle
   are drawn by paths that still use the original mesh (likely the 0x02c0 re-draws over a resident mesh, 6d; not
   confirmed), so the refined and the coarse surface fight in depth. Peds show nothing of the kind.
+
+### 6n. The sun's direction and the camera's rotation (2026-11-01, RenderHook.asi sun shadows)
+
+- **Sun vectors**: `0x4E7200` holds 16 vectors of 16 bytes (x, y, z, 0: unit length, world space - x east, y north, z
+  up, pointing **towards** the sun), a ring as GTA III / VC's `CTimeCycle::m_VectorToSun[16]`; `0x4EA568` (u32) is the
+  index of the newest (VC's `m_CurrentStoredValue`). Found 2026-11-01: RAM dumps at 08:00, 12:00, 17:00 and 21:00 (the
+  rig's `set_time`, `dump`), `findvec` for VC's formula (sin a, 1, 0.2 - cos a) normalised (a = the day's angle) gave a
+  run of 16-byte-spaced matches at 17:00; the ring's newest slots were 6, 10, 14, 2 at the four hours and the only word
+  holding exactly those values is 0x4EA568. Not refreshed every frame (a few slots per second; the ring shows several
+  consecutive values). Values: 08:02 (0.640, 0.655, 0.401), 12:02 (-0.006, 0.581, 0.814), 17:02 (-0.673, 0.674, 0.304),
+  21:02 (-0.557, 0.793, -0.247): the sun rises in the north-east, stands high in the north at noon (y stays
+  0.58 - 0.79 all day), sets in the north-west, below the horizon (z < 0) at night. The formula is close to VC's but
+  not exact (a least-squares fit leaves ~0.04 per component); reading the ring is exact.
+- **The camera's rotation** (for anything in world space, e.g. the sun): the static world's packets have model matrices
+  without rotation (a scale per axis: their positions are int16 times a scale), so the columns of K^-1 M of a world
+  packet's window matrix (K the lens, 6g) are the world axes in view space times those scales; normalised they are the
+  camera's rotation (`sceneView` in gs_hw.cpp; checked: the sun at noon comes out up and ahead with the camera facing
+  north, at 17:00 to the left).
 
 ## 7. Textures: `.XTX`
 

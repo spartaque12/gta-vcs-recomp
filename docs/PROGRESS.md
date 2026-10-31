@@ -1,5 +1,31 @@
 # Progress
 
+## 2026-10-31 - RenderHook-style graphics: ambient occlusion (RenderHook.asi)
+
+- Sun shadows (the user's request, GI with shadows step 1, 2026-11-01): the timecycle's sun vector found (0x4E7200 ring,
+  index 0x4EA568; game-internals.md 6n), the camera's world rotation from the world's draws, shadow maps of the scene's
+  draws on request (`render_shadow_map`), 3 cascades in RenderHook.asi; ~0.2 ms GPU at 1080p. Off by default. RENDERHOOK_PLAN.md.
+- DLAA step 3: DLSS (DLAA) through NGX in RenderHook.asi (Graphics > Anti-aliasing (RenderHook), off by default; built
+  with `-DVCS_NGX_DIR`); API `render_current_color`, `render_native`, `render_create_texture_ex`. D3D11 only. RENDERHOOK_PLAN.md.
+- DLAA step 2: per-object motion (the scene's native draws again with their last-frame matrices, `VcsRenderFrame.velocity`);
+  warped error on moving cars 11.8 -> 6.8. Clipped (GS-path) draws and particles have none yet. RENDERHOOK_PLAN.md.
+- DLAA step 1 (the user's request): jitter of the 3D picture (`gsHwSetJitter`, `render_set_jitter`) and the camera's
+  reprojection for motion vectors (`VcsRenderFrame.reproject`). Turning the camera, warping the previous picture by the
+  vectors cuts its difference to the current one from 56.6 to 6.2 (mean, 0-255). RENDERHOOK_PLAN.md "DLAA, step 1".
+
+- Plan: docs/RENDERHOOK_PLAN.md (what of gtaRenderHook fits the native renderer, what each feature needs, order).
+- Milestone 1 done: GTAO from the game's Z buffer, multiplied into the 3D picture before the post effects, as
+  `RenderHook.asi` (VCS-mods `plugins/RenderHook`); F2 > Graphics > Lighting (RenderHook), off by default. vcs.exe: the
+  renderer's frame hook (gs_hw.cpp; the camera from the frame's native draws), the mod API's render part
+  (`src/modapi/mod_render.cpp`), multisampled texture slots in the RHI (Vulkan).
+- Checked in hidden runs from a privately linked exe and a copy of the user's card, 16:9 1920x1080 native frame with
+  MSAA 4x and 4:3 640x448 without: the hook ran in every 3D frame (0 missed), the lens was agreed in every frame
+  (fx = fy = 1028.3 px at 1080p; fy 964 in the hospital tutorial's 5:3 scripted camera); the three passes cost 0.5-0.7 ms
+  of GPU a frame at 1080p MSAA 4x, 0.05 ms at 640x448 (RTX 4070 Ti SUPER). Before / after / occlusion-only shots in
+  `build/aotest/rh_final*`, side by side in `build/aotest/compare*`. The Vulkan backend and the renderer library compile with
+  `VCS_RHI_VULKAN=ON`; Vulkan not run. Known: particles drawn before the hook point darken with the occlusion behind
+  them; faint dots on seams of the sea surface.
+
 ## 2026-10-31 - Optional PCSX2 PNG texture packs
 
 - F2 > Graphics > Texture replacements (restart; off by default), existing `SLUS-21590/replacements` found beside
@@ -994,6 +1020,13 @@ Python scripts still usable on their own. docs/LAUNCHER.md has the whole of it; 
 | `VCS_DISTANT_LIGHTS`, `VCS_MORE_STARS`, `VCS_DISTANT_CARS`, `VCS_DISTANT_BOATS`, `VCS_FLIGHT_CEILING` `=0\|1` | Project2DFX's distant lights, 500 more stars, distant traffic, the 800 m flight ceiling for one run (Graphics > Project2DFX, Game > Flying; game/vcs_project2dfx.h). Draw distance / Object detail distance: Graphics > Draw distance (`setting p2dfx.draw_distance 300` for tests) |
 | `VCS_P2DFX_LIGHTS=<file>` | another light table than `p2dfx/lights.bin` next to vcs.exe (`python tools/p2dfx.py import <plugin zip>` makes it) |
 | `VCS_P2DFX_HOOKS=0`, `VCS_P2DFX_VERIFY=1` | no Project2DFX hooks (the reference); the native projection / sprite writer checked against every call of the game's own (counts in the `p2dfx` control command) |
+| `VCS_RH_AO=0..3`, `VCS_RH_AO_RADIUS=50..300` | RenderHook.asi's ambient occlusion (off / subtle / normal / strong) and its radius in cm, for one run |
+| `rhtaa objects 0\|1`, `rhtaa mv 4` | per-object motion off / on in the checks; the renderer's velocity buffer (red covered, green moved, blue depth agrees) |
+| `VCS_RH_SHADOWS=0..3`, `VCS_RH_SHADOW_DISTANCE=50..400`, `VCS_RH_SHADOW_QUALITY=0..2`, `VCS_RH_SHADOW_VIEW=1` | RenderHook.asi sun shadows: off / soft / normal / dark, distance (m), 1024 / 2048 / 4096 per cascade, the debug view (control channel: `rhshadow [view 0/1]`) |
+| `VCS_RH_DLAA=0/1`, `VCS_RH_DLAA_JITTER_SIGN=-1`, `VCS_RH_DLAA_MV_SIGN=-1` | RenderHook.asi DLAA (NGX; D3D11; control channel: `rhdlaa`); the signs flip the jitter / motion vectors handed to DLSS (diagnostics) |
+| `VCS_RH_JITTER=N`, `VCS_RH_MV_VIEW=1..3` | RenderHook.asi temporal AA groundwork: an N-point jitter; motion vectors as colour / previous frame warped by them minus the current (black = right) / unwarped (control channel: `rhtaa`) |
+| `VCS_RH_AO_VIEW=1` | RenderHook.asi: the occlusion alone, grey over the 3D picture (control channel: `renderhook view 0\|1`, `renderhook ao N`, `renderhook` = status) |
+| `PS2X_HW_FRAME_HOOK_LOG=1` / `=2` | the renderer's frame hook (render mods): frames run / missed, the camera and Z mapping it hands over, every 5 s; `2` also one frame's lens candidates with their matrices |
 | `display.scale=<1..8>` (old `scale=` still read) | internal render resolution, as `PS2X_HW_SCALE` (the environment wins) |
 | `python tools/vudis.py code.bin --start 0x30 --to-ebit` | VU microcode disassembler |
 | `python tools/sendkey.py Return`, `python tools/screenshot.py f.png` | key press / screenshot (control channel if open, else the window) |

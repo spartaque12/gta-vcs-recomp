@@ -1146,6 +1146,49 @@ not part of the mod. The light table stays where it was (`p2dfx\lights.bin` besi
 privately linked exe (port 47690): at 23:00 4,423 lights loaded, 823 drawn, 41 more stars, 15 distant vehicles, the
 rows in place; without the DLL the rows and the `p2dfx` command are gone and the game runs.
 
+## 2026-10-31 - RenderHook-style graphics as RenderHook.asi; ambient occlusion first (the user's request)
+
+The user asked whether GTA SA's gtaRenderHook (which they have contributed to) could be ported. Not as code (it hooks
+SA's RenderWare D3D9 pipeline); its features are rebuilt on this renderer - the plan, with what fits and what does not,
+is docs/RENDERHOOK_PLAN.md. The user then asked for the result to be an `.asi` mod.
+- **A mod, with render hooks in the API**: the effects live in `RenderHook.asi` (VCS-mods `plugins/RenderHook`); vcs.exe
+  gains a generic way for a mod to draw at a point of the frame (MODDING.md "Rendering"), appended to API 1. The mod
+  never sees D3D11 or Vulkan: the RHI behind opaque handles, shaders as bytecode for the device's backend (DXBC and
+  SPIR-V built from one HLSL in VCS-mods' CMake), so one mod works on both backends as the port's own passes do.
+- **Full-screen passes only, for now**: textures, constants, pipelines from vertex-ID quads, a few blend presets. Enough
+  for screen-space effects (AO, colour grading, a sky); shadow maps will need more (replaying the frame's native draws
+  into a mod's target) - added with that milestone, not guessed now.
+- **The point: after the whole 3D scene, before the post effects.** VCS draws peds and vehicles after the reflection map
+  (later than game-internals.md 6g said), so the hook runs at the first post-effect read of the picture, the motion blur's
+  blend or the Z clear before the HUD; particles drawn before it are darkened where the surface behind them is occluded,
+  accepted (earlier would leave peds and vehicles without AO). The bloom then reads the occluded picture, as RenderHook's
+  bloom reads the lit one.
+- **The camera from the game's own draws, not from RAM**: the frames the renderer executes are up to three behind the
+  game thread, so reading the game's camera there would mismatch; each native draw's window matrix gives the Z mapping
+  exactly and the lens by the orthogonality of the model axes' images (the world's packets are scaled per axis, so the
+  similarity shortcut was wrong at most spots). 24 candidates a frame, the one two agree on, else the last agreed lens.
+- **Off means off**: the mod adds its hook the first time the option is switched on; until then the Z buffer is not made
+  sampleable and the frame is untouched. Defaults: Off; three strengths (Subtle / Normal / Strong) and a radius.
+- **No temporal filter**: the 4x4 rotation pattern and a 4x4 depth-aware blur remove the noise in one frame, so the AO
+  never trails or ghosts at the game's frame rates; GTAO's quality at 2 slices x 4 steps x 2 sides per pixel.
+- **DLAA groundwork in the renderer, DLAA in the mod** (later the same day): jitter is a renderer feature (only it can
+  move every draw of the picture, after the PS2's vertex snapping); motion vectors are not drawn by the renderer but given
+  as the camera's reprojection, from the frame's own static meshes (M_prev M_cur^-1, agreed by several) - no game-thread
+  data has to travel with the frames, which run up to three behind it. Object vectors next, NGX last.
+- **DLAA in the game's process, the SDK not shipped** (step 3): vcs.exe is 64-bit, so NGX runs in-process (RHDLAA for SA
+  needed a 64-bit helper); the mod gets the native D3D11 objects through `render_native` rather than the API wrapping NGX,
+  so vcs.exe stays free of vendor SDKs. The DLSS SDK (nvsdk_ngx_s.lib, nvngx_dlss.dll) is NVIDIA's binary: VCS-mods
+  builds DLAA only with `-DVCS_NGX_DIR`, and the DLL goes beside RenderHook.asi. The NGX build uses the static CRT, as
+  the SDK's lib. D3D11 first; Vulkan later.
+- **Shadow maps drawn by the renderer, fitted by the mod** (2026-11-01, sun shadows): only the renderer has the frame's
+  draws (meshes, skinned vertices, window matrices), so it draws the casters when asked (`render_shadow_map`), inside the
+  hook and with the caller's matrices - no frame of lag and no light model in vcs.exe; the mod owns the sun, cascades,
+  filtering and look. View space is the common space: each draw's window matrix is taken back through the lens, and the
+  camera's world rotation comes from the world's own draws, so nothing of the game's camera has to be read from memory.
+  Casters are what the game drew (no off-screen ones) for now: drawing the world for the light is a project of its own.
+- **Tested from a privately linked exe** (`build\rh_exe`: the game's objects built by ninja, the link run with its own
+  /out) because the user was playing from `build\vcs.exe`; the normal build relinks build\vcs.exe as usual.
+
 ## 2026-10-31 - "Not smooth when facing the sun": no code change, a frame-pacing finding
 
 Measured instead of guessed (game-internals.md 6l, last row): the sun, its glow sprites, bloom and trails cost 0.2-0.5 ms

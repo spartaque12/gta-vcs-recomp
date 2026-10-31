@@ -652,6 +652,31 @@ volk + VMA). It keeps the D3D11 backend's behaviour, which the renderer was writ
 - Hidden windows get no swapchain (an off-screen back buffer).
 Checks still to do: picture against D3D11 on the same PC (scenes), validation clean, the in-pass suspension count.
 
+### Frame hook for render mods (2026-10-31, docs/RENDERHOOK_PLAN.md)
+
+RenderHook-style effects (the user's gtaRenderHook for SA, rebuilt here) live in mods (`RenderHook.asi`), which draw at a
+point of the frame through the mod API (MODDING.md "Rendering"). The renderer's side:
+- **The point** (`gsHwSetFrameHook`, `RhiExecutor::sceneStep` / `runSceneHook` in gs_hw.cpp): a native draw into a
+  picture target (640 wide, depth-tested) arms it; the hook runs before the first of: a read of the picture across a 256-
+  or 512-wide buffer (the bloom / trails downsample - not the reflection map's 128x128 corner), the motion blur's 1:1
+  blend of the previous picture into it, its Z-only clear before the HUD. So the hook sees the whole 3D scene - VCS draws
+  peds and vehicles after the self-copy and the reflection map (game-internals.md 6g) - and nothing of the post effects.
+  The next frame's Z clear, the copy of the finished picture out or a drop of the picture ends a frame that got none
+  (counted as missed; 0 in the checks).
+- **What it gets** (`GSHwFrameView`): the device, the picture's target (multisampled with MSAA), optionally a resolved
+  copy, the Z buffer - made sampleable (UsageSampled; D3D11 R32_TYPELESS with a D32 DSV and an R32 SRV, Vulkan a sampled
+  D32 image resting in SHADER_READ_ONLY) from the frame-start Z clear after a hook asks, sticky - the picture's size, and
+  the camera: the Z mapping (GS z = a + b / w) and the lens from the frame's native draws' window matrices (orthogonality of
+  the model axes' images, up to 24 candidates a frame, the one at least two agree on, else the last agreed one).
+- **RHI**: `PipelineDesc::multisampledTextures` - the texture slots a pixel shader declares Texture2DMS (the multisampled
+  Z buffer); Vulkan binds a multisampled texture only there (and skips a draw that lacks one), D3D11 binds any view.
+- **Temporal AA** (2026-10-31): `gsHwSetJitter` offsets the 3D picture's draws by a Halton point per frame (`cbuffer
+  Draw.jitter`, after the vertex snapping; layers, copies and post passes untouched), and the hook gets the camera's
+  reprojection from the static world meshes' window matrices of this frame and the last (`sceneReprojection`;
+  RENDERHOOK_PLAN.md "DLAA, step 1").
+- `PS2X_HW_FRAME_HOOK_LOG=1` logs the hook's frames and camera every 5 s, `=2` also one frame's lens candidates with their
+  matrices. Without a hook (no render mod, or its option off) nothing changes: no sampleable depth, no extra pass.
+
 ## Verification
 
 - Every stage: the stage 0 capture diff over the reference scenes; perf CSV

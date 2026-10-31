@@ -20,6 +20,7 @@ namespace rhi
         RGBA8,  // 8-bit unorm, R in the lowest byte
         R32F,
         D32F,   // depth
+        RGBA16F, // half floats: render targets read by shaders (motion vectors); not uploaded or read back
     };
 
     enum TextureUsage : uint32_t
@@ -28,6 +29,7 @@ namespace rhi
         UsageRenderTarget = 1u << 1,
         UsageDepth = 1u << 2,
         UsageDynamic = 1u << 3, // rewritten by the CPU often (whole texture)
+        UsageStorage = 1u << 4, // written by compute work outside the RHI (an SDK given the native texture: DLSS's output)
     };
 
     struct TextureDesc
@@ -200,6 +202,10 @@ namespace rhi
         DepthState depth;
         bool scissor = false;
         bool depthClip = true; // false: depth outside 0..1 is not clipped (clip distances still apply)
+        // texture slots (bit per slot) the pixel shader declares Texture2DMS - a multisampled depth buffer read by a
+        // screen-space pass. Vulkan binds a multisampled texture only to these (view and shader must agree; another
+        // texture there skips the draw); D3D11 binds whatever is set, as always.
+        uint32_t multisampledTextures = 0;
         const char *name = nullptr;
     };
 
@@ -298,6 +304,22 @@ namespace rhi
 
         virtual void pushMarker(const char *name) = 0; // debugger / profiler annotations
         virtual void popMarker() = 0;
+
+        // The API's own objects, for an SDK that takes them (NVIDIA NGX / DLSS): D3D11 ID3D11Device* / ID3D11DeviceContext* /
+        // the texture's ID3D11Texture2D*; null where a backend has none to give (Vulkan, null). Main thread; the caller
+        // leaves the device as it found it as far as it can (the RHI sets its state again at each pass and draw).
+        enum class Native : uint8_t
+        {
+            Device,
+            Context,
+            Texture,
+        };
+        virtual void *native(Native what, Texture *texture = nullptr)
+        {
+            (void)what;
+            (void)texture;
+            return nullptr;
+        }
 
         // ---- swapchain --------------------------------------------------------------------------------------------
         virtual void backbufferSize(uint32_t &width, uint32_t &height) const = 0;

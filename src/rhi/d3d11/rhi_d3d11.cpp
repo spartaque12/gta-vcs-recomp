@@ -41,13 +41,14 @@ namespace rhi
             case Format::RGBA8: return DXGI_FORMAT_R8G8B8A8_UNORM;
             case Format::R32F: return DXGI_FORMAT_R32_FLOAT;
             case Format::D32F: return DXGI_FORMAT_R32_TYPELESS; // DSV D32_FLOAT, SRV R32_FLOAT
+            case Format::RGBA16F: return DXGI_FORMAT_R16G16B16A16_FLOAT;
             default: return DXGI_FORMAT_UNKNOWN;
             }
         }
 
         DXGI_FORMAT shaderViewFormat(Format f) { return f == Format::D32F ? DXGI_FORMAT_R32_FLOAT : resourceFormat(f); }
 
-        uint32_t bytesPerPixel(Format) { return 4; }
+        uint32_t bytesPerPixel(Format f) { return f == Format::RGBA16F ? 8u : 4u; }
 
         void setName(ID3D11DeviceChild *object, const char *name)
         {
@@ -297,6 +298,8 @@ namespace rhi
                     td.BindFlags |= D3D11_BIND_RENDER_TARGET;
                 if (desc.usage & UsageDepth)
                     td.BindFlags |= D3D11_BIND_DEPTH_STENCIL;
+                if (desc.usage & UsageStorage)
+                    td.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
                 if (mips)
                 {
                     // generateMips needs a render target and shader view; level 0 is uploaded after creation
@@ -648,6 +651,17 @@ namespace rhi
                     m_annotation->BeginEvent(wide(name).c_str());
                 if (gpuTiming())
                     m_timer.push(*this, name);
+            }
+
+            void *native(Native what, Texture *texture) override
+            {
+                switch (what)
+                {
+                case Native::Device: return m_device.Get();
+                case Native::Context: return m_context.Get();
+                case Native::Texture: return texture ? static_cast<D3DTexture *>(texture)->texture.Get() : nullptr;
+                }
+                return nullptr;
             }
 
             void popMarker() override
