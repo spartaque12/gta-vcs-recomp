@@ -17,6 +17,12 @@ class Geometry:
 def read_string(d, a, b):
     return d[a:b].split(b"\0")[0].decode("latin1")
 
+def rw_version(libid):
+    """a chunk's library id stamp -> 0x3VVRB version (0x1803FFFF SA: 0x36003, 0x1003FFFF VC: 0x34003, 0x0C02FFFF: 0x33002)"""
+    if libid & 0xFFFF0000:
+        return (((libid >> 14) & 0x3FF00) + 0x30000) | ((libid >> 16) & 0x3F)
+    return libid << 8
+
 def parse_material(d, a, b):
     m = {"texture": None, "color": (255, 255, 255, 255)}
     for t, ca, cb, v in chunks(d, a, b):
@@ -41,7 +47,7 @@ def parse_geometry(d, a, b):
     ver = st[3]
     native = flags & 0x01000000
     ntex = (flags >> 16) & 0xFF or (2 if flags & 0x80 else 1 if flags & 0x04 else 0)
-    if ver < 0x34000 and (ver & 0xFFFF0000) != 0x18030000 and ver < 0x1003FFFF:
+    if rw_version(ver) < 0x34000:  # before 3.4: ambient / specular / diffuse after the header
         p += 12
     g.flags, g.prelit, g.uv, g.tris = flags, None, None, []
     if native:
@@ -64,6 +70,7 @@ def parse_geometry(d, a, b):
     p += 12 * nv if hasv else 0
     g.nrm = [struct.unpack_from("<3f", d, p + 12 * i) for i in range(nv)] if hasn else None
     g.materials = []
+    binmesh = None
     for t, ca, cb, v in chunks(d, st[2], b):
         if t == 8:
             ml = find(d, ca, cb, 1)[0]
@@ -73,7 +80,33 @@ def parse_geometry(d, a, b):
             it = iter(mats)
             for i in idx:
                 g.materials.append(next(it) if i < 0 else g.materials[i])
+        elif t == 3:
+            for t2, c2a, c2b, _ in chunks(d, ca, cb):
+                if t2 == 0x50E:
+                    binmesh = parse_binmesh(d, c2a)
+    # Some exporters leave every triangle's material id at 0 and split the materials only in the BinMesh PLG (which
+    # the PC games draw from): then the triangles come from it
+    if binmesh and len(g.materials) > 1 and len({t[3] for t in g.tris}) == 1:
+        g.tris = binmesh
     return g
+
+def parse_binmesh(d, p):
+    """the BinMesh PLG's triangles (v0, v1, v2, material): trilists, or strips with alternating winding"""
+    flags, nmesh, _ = struct.unpack_from("<III", d, p)
+    p += 12
+    tris = []
+    for _ in range(nmesh):
+        n, mat = struct.unpack_from("<II", d, p)
+        idx = struct.unpack_from("<%dI" % n, d, p + 8)
+        p += 8 + 4 * n
+        if flags & 1:
+            for k in range(n - 2):
+                a, b, c = idx[k], idx[k + 1], idx[k + 2]
+                if a != b and b != c and a != c:
+                    tris.append((b, a, c, mat) if k & 1 else (a, b, c, mat))
+        else:
+            tris += [(idx[k], idx[k + 1], idx[k + 2], mat) for k in range(0, n - 2, 3)]
+    return tris
 
 def parse_dff(path):
     d = open(path, "rb").read()

@@ -75,8 +75,9 @@ def _decode(fmt, rfmt, data, w, h, pal):
         out[i * 4:i * 4 + 4] = bytes(px)
     return bytes(out)
 
-def read_txd(path, want=256):
-    """{name: (w, h, rgba)}: the largest mip level not above `want` (the base level when all are larger)."""
+def read_txd(path, want=256, only=None):
+    """{name: (w, h, rgba)}: the largest mip level not above `want` (the base level when all are larger). only: a set of
+    lower-case names to decode (the rest skipped)."""
     d = open(path, "rb").read()
     res = {}
     for t, a, b in _chunks(d, 0, len(d)):
@@ -89,10 +90,13 @@ def read_txd(path, want=256):
             p = st[1]
             plat, filt = struct.unpack_from("<II", d, p)
             name = d[p + 8:p + 40].split(b"\0")[0].decode("latin1")
+            if only is not None and name.lower() not in only:
+                continue
             rfmt, d3d = struct.unpack_from("<II", d, p + 72)
             w, h, depth, levels, rtype, flags = struct.unpack_from("<HHBBBB", d, p + 80)
             q = p + 88
-            fmt = struct.pack("<I", d3d) if plat == 9 else (b"DXT%d" % d3d if flags & 8 else b"")
+            # D3D9 (SA): the D3DFORMAT; D3D8 (VC, III): the last byte is the DXT compression (1, 3, 5; 0 none)
+            fmt = struct.pack("<I", d3d) if plat == 9 else (b"DXT%d" % flags if flags in (1, 3, 5) else b"")
             pal = None
             if rfmt & 0x2000:
                 pal = d[q:q + 1024]; q += 1024

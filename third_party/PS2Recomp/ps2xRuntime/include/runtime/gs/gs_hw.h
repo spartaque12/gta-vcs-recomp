@@ -101,6 +101,9 @@ int64_t gsHwFrameBuildNs();
 // [gta-recomp] Native frame (GSHwOptions::nativeFrame): the size the picture's own targets are drawn at - the window's
 // letterboxed area for 3D frames' aspect. 0 = the integer scale. Any thread.
 void gsHwSetFrameSize(uint32_t width, uint32_t height);
+// [gta-recomp] Alpha dual pass (skygfx's): alpha-blended draws with a low alpha-test reference and depth writes drawn
+// twice - texels at alpha >= 0x40 (of 0x80) with depth writes, the rest blended without. Any thread; takes effect at once.
+void gsHwSetAlphaDualPass(bool on);
 // [gta-recomp] The size the picture is shown at (the window's letterboxed area); 0 = the render targets' size.
 void gsHwSetOutputSize(uint32_t width, uint32_t height);
 // [gta-recomp] Render targets named by what they are (docs/FULLY_NATIVE.md step 3d): the game says which buffer (FBP,

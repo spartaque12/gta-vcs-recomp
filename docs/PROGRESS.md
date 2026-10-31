@@ -14,6 +14,12 @@
   GS 2.95 -> 2.97 ms. One capped pair; full numbers and conditions in PERFORMANCE.md 21.
 - Fixed the rig's empty-card readiness: area 0 plus advancing frames also described the title flyover. It now
   requires a player ped; earlier empty-card bench results from that check should not be treated as gameplay.
+- 2026-10-31, this release folder: the section above is upstream's open PR #8, brought in by a three-way merge on
+  v0.0.1 (DECISIONS.md). "HD HUD - SLUS-21590 - PS Icons" installed in `build/textures/SLUS-21590/replacements/`
+  (the user's disc is SLUS-21590 v1.00). Built (D3D11); hidden runs from a copy of vcs.exe and the user's card:
+  25 of 160 pack files matched and loaded at Fort Baxter and two city spots, no failures; `texture_check.py` passes
+  (25 matched; 29 different over both). Open: the HUD's digits lose thin strokes at low internal resolutions
+  (clean at 4x, broken at 1.5x; no mips on the full-resolution path - TEXTURE_PACKS.md, Checks).
 
 ## Phase 0 - setup (done)
 - Repo, GPL-3.0, `.gitignore` blocking game files; `tools/vcs_disc.py`
@@ -674,6 +680,9 @@ dropped on uploads (lazy render-target patching).
   look-aside, the vehicle's windows not drawn (src/game/vcs_carglass.cpp); Game > Field of view for the game's cameras
   on foot and in vehicles. Checked in hidden runs (Sentinel): eye placement, look and recentring, glass hidden and back
   on foot, FOV 90 / 85 applied. Not checked: bikes, boats, aircraft in a run; gamepad.
+  Later the same night: no camera shake in the in-car view and the vehicle's jolts eased out (game-internals.md
+  12e), first person's near clip and eye position as settings, the free-aim dot only while aiming in first person
+  too. An index of all the mods of the day: docs/MODS.md.
 - **Manual drive-by** (2026-10-31, the user's port of SA's Manual Driveby Remake onto free aim; game-internals.md 12d):
   L2 / R2 with an SMG in a vehicle - the camera over the vehicle to that side (or the in-car first-person view), the
   mouse aims with the dot, the shots (FireInstantHitFromCar) along its line. Checked: both sides and first person, every
@@ -922,6 +931,9 @@ Python scripts still usable on their own. docs/LAUNCHER.md has the whole of it; 
 | `VCS_JOLT=0\|1` | death ragdolls (Jolt Physics) off / on for one run, over Game > Physics > Ragdolls (game/vcs_jolt.h) |
 | `VCS_JOLT_HOOKS=0` | no ragdoll hooks at all (the reference) |
 | `python tools/ragdoll_check.py [OUT]` | death ragdolls: a ped and Vic killed, the pelvis followed as it falls and settles, a shotgun kill thrown back, a car's onto the bonnet, the respawn; shots on a lying body, a blast |
+| `VCS_DISTANT_LIGHTS`, `VCS_MORE_STARS`, `VCS_DISTANT_CARS`, `VCS_DISTANT_BOATS`, `VCS_FLIGHT_CEILING` `=0\|1` | Project2DFX's distant lights, 500 more stars, distant traffic, the 800 m flight ceiling for one run (Graphics > Project2DFX, Game > Flying; game/vcs_project2dfx.h). Draw distance / Object detail distance: Graphics > Draw distance (`setting p2dfx.draw_distance 300` for tests) |
+| `VCS_P2DFX_LIGHTS=<file>` | another light table than `p2dfx/lights.bin` next to vcs.exe (`python tools/p2dfx.py import <plugin zip>` makes it) |
+| `VCS_P2DFX_HOOKS=0`, `VCS_P2DFX_VERIFY=1` | no Project2DFX hooks (the reference); the native projection / sprite writer checked against every call of the game's own (counts in the `p2dfx` control command) |
 | `display.scale=<1..8>` (old `scale=` still read) | internal render resolution, as `PS2X_HW_SCALE` (the environment wins) |
 | `python tools/vudis.py code.bin --start 0x30 --to-ebit` | VU microcode disassembler |
 | `python tools/sendkey.py Return`, `python tools/screenshot.py f.png` | key press / screenshot (control channel if open, else the window) |

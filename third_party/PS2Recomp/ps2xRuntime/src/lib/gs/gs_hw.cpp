@@ -40,6 +40,8 @@ namespace
     std::atomic<uint32_t> g_outputW{0}, g_outputH{0};   // [gta-recomp] gsHwSetOutputSize
     std::atomic<float> g_aspectWidening{1.0f};          // [gta-recomp] gsHwSetAspectWidening
     std::atomic<uint32_t> g_frameW{0}, g_frameH{0};     // [gta-recomp] gsHwSetFrameSize
+    std::atomic<bool> g_alphaDualPass{false};           // [gta-recomp] gsHwSetAlphaDualPass
+    constexpr uint32_t kDualPassRef = 0x40u;            // its first pass: alpha >= half (0x80 = opaque), skygfx's 128 of 255
     struct TargetRole                                   // [gta-recomp] gsHwSetTargetRole
     {
         uint32_t fbp = 0, fbw = 0;
@@ -181,6 +183,7 @@ namespace
 void gsHwSetHudSqueeze(float factor) { g_hudSqueeze.store(factor, std::memory_order_relaxed); }
 void gsHwSetHudClassifier(GSHwAnchorFn fn) { g_hudClassifier.store(fn, std::memory_order_relaxed); }
 void gsHwSetHudLayer(bool on) { g_hudLayer.store(on, std::memory_order_relaxed); }
+void gsHwSetAlphaDualPass(bool on) { g_alphaDualPass.store(on, std::memory_order_relaxed); }
 void gsHwSetOutputSize(uint32_t width, uint32_t height)
 {
     g_outputW.store(width, std::memory_order_relaxed);
@@ -2273,6 +2276,19 @@ namespace
                 if (s.afail == 1u) zwrite = false;                      // FB_ONLY
                 else if (s.afail == 2u) mask = 0;                       // ZB_ONLY
                 else { mask = static_cast<uint8_t>(mask & 7u); zwrite = false; } // RGB_ONLY
+            }
+            else if (s.ate && (s.atst == 5u || s.atst == 6u) && s.aref < kDualPassRef && zwrite && b.enable && s.tme &&
+                     s.ba == 0u && s.bb == 1u && s.bc == 0u && s.bd == 1u && g_alphaDualPass.load(std::memory_order_relaxed))
+            {
+                // [gta-recomp] alpha dual pass (gsHwSetAlphaDualPass, as skygfx's for GTA III / VC): an alpha-blended draw
+                // tested only against a low reference (the world's GREATER 8) writes depth for half-transparent texels,
+                // which hides everything drawn after it behind them - foliage showed the sky through its leaves. First
+                // the texels at half alpha and up with depth, then the rest blended without depth writes.
+                c.atstArefAfailRt[0] = 5; // GEQUAL
+                c.atstArefAfailRt[1] = static_cast<int32_t>(kDualPassRef);
+                submit(drawPipeline(b, mask, depthOn, s.ztst, zwrite, s.mode, drawSampleMode(c)));
+                c.atstArefAfailRt[2] = 1; // the failing ones; those at or below the original reference add (almost) nothing
+                zwrite = false;
             }
             else if (!(s.ate && s.atst != 1u))
             {

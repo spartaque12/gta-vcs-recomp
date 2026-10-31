@@ -771,6 +771,24 @@ The user subsequently requested `textures/SLUS-21590/`: automatic discovery chec
 for the default source build, in the checkout root before the older bare serial folders. The pack-check tool uses
 this layout by default too. Tests were skipped at the user's request for this folder-discovery change.
 
+- **The whole pack, baked to a budget** (stage A, same day): SA's guns are 6k - 60k triangles cut into many small
+  texture islands (a third of their edges are texture seams), so a simplifier that keeps their texture coordinates
+  stops near 4.5k triangles (~290 KB a pistol) while the streaming heap is 5.4 MB and every carried weapon stays in
+  it (game-internals.md 12g). So the geometry is simplified alone (tools/mesh_simplify.py: quadrics, unweighted so
+  thin parts count, short edges first; back layers of double-sided faces and pieces under 2 % of the size dropped;
+  meshes are only drawn, so holes may close) to 500 - 1700 triangles, given six box-projection views as one atlas
+  (128x64 - 256x128, 8-bit) and the pack's textures baked onto it (tools/mesh_bake.py: rays along the normal, 2x2
+  samples). One material and texture per weapon, as VCS's own; 25 - 110 KB a weapon (1.9 MB for all 28 files).
+  `--no-bake` keeps the old path. Placements: fitted to VCS's own models (grip region for guns, the whole shape with a
+  rotation for the rest), checked in the game; the table in weapon_convert.py.
+- **Animations by the same override** (stage B): the pack's IFPs retargeted by bone id onto VCS's blocks, the blocks'
+  anims kept in count, order and name (the game copies them to fixed slots); no rest-pose rotation needed (the frames
+  agree, game-internals.md 12i). Pistols take the pack's two-handed fire (its default option); the shotgun the
+  chromegun's set, the sniper the bolt-action set; VCS's one rifle group the AK's set. VCS's weapon timings
+  (loop / fire points, reload time) stay. Standing fire anims are aimed to VCS's own at the fire point and keep only
+  the arms (game-internals.md 12i): SA's rely on SA's aiming IK. TEC (unused by the player) is converted by the tool
+  but not installed.
+
 ## 2026-10-31 - Jolt Physics, milestone 1: death ragdolls (the user's request: SA's "[SA] Jolt Physics" mod)
 
 The mod's binary can't be used (an SA ASI): it is re-implemented on the same engine in stages - death ragdolls, the
@@ -839,3 +857,98 @@ and IK (game-internals.md 12f). Milestone 1 (game-internals.md 12h):
   so bodies tumble. Peds the blast kills get the same when their ragdoll is made (any recent blast reaching them; the
   damage comes as the blast's weapon, a grenade's 12 or 0x31), in place of the game's push (one rigid 11 m/s throw
   given before the damage). Hit force scales it.
+
+## 2026-10-31 - Project2DFX: distant lights, stars, traffic, draw distance (the user's request)
+
+The user asked for ThirteenAG's Project2DFX for the PCSX2 fork (GTAVCS.PCSX2F.Project2DFX: LOD lights, more stars,
+distant traffic), then for draw-distance options. The plugin is PS2 code built against the fork's hook runtime, so it
+is rebuilt in `src/game/vcs_project2dfx.cpp` from its MIT source (game-internals.md 6l).
+- **The light table is never in this repository**: Project2DFX took its 4,423 lamps from the game's map - game data.
+  `tools/p2dfx.py import` reads it from the plugin the player has (the zip, its .elf - symbol `vcsfx::lights` - or the
+  source's Lights.hpp) into `p2dfx/lights.bin` next to vcs.exe (kept by tools/clean.py).
+- **Per-light work on the host, game functions as a chain of guest tail calls.** The plugin calls the game's
+  projection and sprite writer for every light; here those two are ported bit-exactly (FPU / VU0 macros; checked
+  against the game's own calls with `VCS_P2DFX_VERIFY=1`) and the calls that must stay the game's (render states, the
+  sprite flush, Im3D) run one at a time: each returns to a continuation address of ours (`0x27C41C`, CCoronas::Render
+  + 4, neither an entry nor a resume point, refused if it ever becomes one), whose host function sets up the next
+  call, until the last returns to where the game's own call would have. No host code runs after a guest call inside
+  one C++ frame, so AGENTS.md rule 2 holds: the chain is driven by the scheduler's dispatch, and a checkpoint unwind
+  in the middle just resumes it.
+- **The game's buffers, the game's limits**: sprites go through the sprite buffer in batches of its 96, traffic
+  through the temp buffers (512 vertices, 1020 indices); the plugin's packet-buffer reserves are kept.
+- **Draw distance = the world camera's far plane**, a constant 2000 every frame, scaled where the render sets it: the
+  sector frustum and entity culling follow it, and every island's low-detail buildings are already in each level's
+  data, so nothing has to be preloaded - the far plane was what hid them. The fog ends at the far plane, so a longer
+  one also clears the haze (the PS2 picture at 1x). **Object detail distance = CRenderer::ms_lodDistScale** (0x4887F8,
+  1.0, read only by CCamera::Process): what PC VC's draw-distance slider changes.
+- **The flight ceiling** (80 -> 800 m, part of the plugin's light install) is a setting of its own on the Game page.
+- Everything off by default (authentic by default); Live settings (atomics read each frame); `VCS_P2DFX_HOOKS=0` hooks
+  nothing.
+
+## 2026-10-31 - PCSX2 PNG packs as optional host textures
+
+The user supplied `SLUS-21590/replacements` and asked to use its PCSX2 textures in the native port. Accept those
+filenames directly: PCSX2 pixel/palette hashes and format bits, including the older TCC bit. Keep the original
+disc, raster uploads, renderer and fallback intact; match at the shared texture cache so the world, HUD and menus
+all benefit. The option is off by default and applies after restart. Decode PNGs asynchronously, share one GPU
+copy per pack image, and bound the replacement cache by bytes (512 MiB by default). Keep GS logical sizes separate
+from physical replacement sizes, including non-integer scales and region wrap. Start with the format actually
+provided (full-texture PNGs); DDS, archives and separate region/mipmap files are outside this first implementation.
+The pack remains external, ignored by git and rejected by the release guard. See `docs/TEXTURE_PACKS.md`.
+
+The user subsequently requested `textures/SLUS-21590/`: automatic discovery checks `textures/` beside the exe and,
+for the default source build, in the checkout root before the older bare serial folders. The pack-check tool uses
+this layout by default too. Tests were skipped at the user's request for this folder-discovery change.
+
+## 2026-10-31 - 80's VC True Vegetation: VC's palms in place of VCS's (the user's request)
+
+The user asked to port the "80's VC True Vegetation" mod (VC PC palms and trees) and to pick the fitting palms.
+- **By name**: VCS kept VC's vegetation names (game-internals.md 12i), so each of the pack's seven palms replaces the VCS
+  model of the same name - `veg_palm01..04`, `veg_palmbig14`, `veg_palwee01..02` - through the streamed-file overrides
+  (`tools/veg_convert.py` -> `<mods>/stream`), with that model's own texture dictionary, which nothing else uses. The
+  user then asked for the pack's four leaf trees too (`veg_tree3`, `veg_treea1`, `veg_treea3`, `veg_treeb1`): all
+  eleven by default, `--only` for fewer.
+- **Alpha dual pass in the renderer** (the user's request, after skygfx): Graphics > "Alpha dual pass", off by default
+  as every enhancement. Blended draws with the low alpha-test reference draw their half-alpha-and-up texels with depth
+  writes, then the rest without, so half-transparent leaf edges stop hiding what is drawn after them
+  (PS2RECOMP_PATCHES.md). It works for every such draw, the game's own foliage and fences included; the converter's
+  0 / 255 alpha stays, as the result must also hold with the option off.
+- **Scaled to VCS's heights**: VCS's palms are the same designs drawn 0.8 - 1.4 times VC's size; the map is placed
+  around them, so each new palm takes the old one's height (its footprint then matches too).
+- **The game's formats and colour**: prelit like the game's own palms (flags 0xD), their flat grey times the pack's
+  material colour; textures 32 - 256 px by the share of the model each covers, 4-bit like two thirds of the game's own
+  (8-bit below 32 x 16). The seven palms take 0.77 MB of streaming memory against the game's own 0.12 MB (1.18 MB with
+  8-bit textures, which looked the same side by side), memory the game otherwise fills with vehicles and peds.
+- **Leaves as made**: a first version cut every palm to 1,000 triangles (simplified, the smallest frond cards left
+  out); in the game its crowns were confetti with pale veils (the user's report). Each frond card maps its own patch of
+  the texture, and collapses inside the cards smeared it. Now the cards stay as made, but of each double-sided card
+  (every face twice, reversed, for PC's back-face culling) one face is kept, since VCS draws both sides of a triangle:
+  half the triangles. Only the opaque parts (trunks, stems) are simplified, to 600 triangles, and materials with a fully
+  transparent texture (`a` in `veg_palmbig14`) are left out. In the densest view measured the GS stage went
+  6.0 -> 10.3 ms (1,325 -> 4,631 native draws; every 68 strip vertices are a draw). Fewer draws for everything would
+  come from merging consecutive same-state batches in the renderer - a renderer task of its own, not done here.
+- **Alpha for the game's alpha test**: world draws are alpha-tested GREATER 8 (of 128) and write depth for every texel
+  that passes (game-internals.md 12i), so half-transparent texels let the sky through and hid the parts of the tree drawn
+  after them - pale patches where downscaled fibres and leaflets had blurred half transparent (`veg_palmbig14`'s skirt:
+  half its texels at 128 px). Cut-out textures keep at least 128 px; their colour is averaged by alpha and bled into the
+  transparent texels (no dark or white fringes), their alpha scaled to keep the full-size share of solid texels and then
+  made 0 or 255; opaque materials are drawn first. Left is the filtered edge band: a fine sky-coloured speckle between
+  leaflets, as alpha-tested foliage has.
+- `tools/veg_convert.py --remove` takes the palms out again; `VCS_STREAM_OVERRIDE=0` runs without any override.
+
+## 2026-10-31 - Upstream PR #8 (PCSX2 texture packs) in this build, for the HD HUD pack (the user's request)
+
+The user asked for the "HD HUD - SLUS-21590 - PS Icons" PCSX2 pack in the port by way of upstream's open PR #8
+(gothamor/gta-vcs-recomp "Feature/texture replacements", head db33c50; the section "PCSX2 PNG packs as optional host
+textures" above and docs/TEXTURE_PACKS.md are its own). It is not merged upstream: this folder carries it ahead of
+upstream, and nothing was pushed.
+- **A three-way merge, not a patch**: the PR branch starts at v0.0.1 (9b9211d), this folder's base, so each touched
+  file was merged from v0.0.1, this folder and the PR head; local work (first person, free aim, Jolt, Project2DFX,
+  the JoltPhysics licence in release.py) is untouched. Two conflicts: `tools/toolchain.py` `cmake_build` keeps this
+  folder's `program("cmake", env)` (same fix as the PR's `_resolve_command`, and what `configure` / build.py's
+  launcher use), while the PR's `_resolve_command` in `run_with_progress` and its clang-cl fallback came in too; this
+  file kept both sides' sections.
+- **Added**: `tools/texture_check.py --port` (default 47664, the PR's), so its game check can run beside other rigs.
+- **The pack** is in `build/textures/SLUS-21590/replacements/` beside `build/vcs.exe`, where the PR's discovery finds
+  it; `build/` is ignored, so it never reaches git or a release. The option stays off by default (F2 > Graphics >
+  Texture replacements, then restart). Checks and the low-resolution digit caveat: TEXTURE_PACKS.md, Checks.

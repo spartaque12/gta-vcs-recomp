@@ -28,6 +28,7 @@
 #include "game/vcs_hud.h"
 #include "game/vcs_jolt.h"
 #include "game/vcs_input.h"
+#include "game/vcs_project2dfx.h"
 #include "game/vcs_volume.h"
 #include "platform/platform.h"
 #include "render/presenter.h"
@@ -600,6 +601,19 @@ namespace
         settings::add(s);
 
         s = {};
+        s.key = "graphics.alpha_dual_pass";
+        s.page = "Graphics";
+        s.section = "Image quality";
+        s.label = "Alpha dual pass";
+        s.help = "Leaves, fences and other cut-out textures drawn in two passes (as skygfx does for GTA III / VC): their "
+                 "half-transparent edges no longer hide what is behind them, so the sky stops showing through trees.";
+        s.type = Type::Toggle;
+        s.defaultValue = 0;
+        s.env = "PS2X_HW_ALPHA_DUALPASS";
+        s.onChange = [](int v) { gsHwSetAlphaDualPass(v != 0); };
+        settings::add(s);
+
+        s = {};
         s.key = "graphics.texture_replacements";
         s.page = "Graphics";
         s.section = "Image quality";
@@ -630,6 +644,7 @@ namespace
         if (s.choices.size() > 1)
             settings::add(s);
 
+        vcs::p2dfx::registerSettings(); // distant lights, stars, traffic; the flight ceiling (game/vcs_project2dfx.h)
         vcs::input::registerSettings(); // the Keyboard & mouse and Gamepad pages (game/vcs_input.h)
 
         s = {};

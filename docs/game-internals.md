@@ -370,6 +370,18 @@ the globals each frame:
   `FUN_0023C820` (per frame) follows TheCamera (`0x6F44D0`, position at +0x30) and `FUN_0023D740`
   swaps them. Each cell streams ~0.3-0.5 MB of MAINLA.IMG in 6 pieces into `0xCB7A80..0x112A660`.
   Fort Baxter is around cells (5..7, 16..18).
+- **Buildings' detail is per cell, not per distance** (2026-10-31, from a RAM dump over Little Havana compared with the
+  previous cell still in its slot; `level+0x258` is a third slot, `+0x25C` a coarse 3 x 3 block, `FUN_0023C188` loads
+  the block (`FUN_0023BDF8`) and the cell (`FUN_002415B0`)). A cell's `+0x20` holds 8 draw lists (passes 0: lists 0-3,
+  1: 4-5, 2: 6-7), entries of 0x50 bytes: +2 the resource (`*(*(level + 0x1C)) + res x 12`: geometry, cached packet),
+  +0xC a matrix pointer or the matrix inline at +0x10, **positions relative to the cell's centre** (the world offset
+  `0x6FE980` is minus the current cell's centre). The lists name the whole level: the cell's own detailed sectors,
+  streamed with it into the buffer above (cell (13, 13): 65 sectors, median 200 m from its centre, ~1.7 MB of geometry
+  plus 246 KB of lists), and everything else as resident low-detail sectors (the level's data at ~0x700000-0xCFFFFF).
+  The same place is drawn by a different resource from another cell (16 such swaps between the two cells), and a
+  cell left behind keeps its lists but not its detail (its streamed resources read as not loaded). So no distance
+  decides a building's detail: it is the cell the camera is in; more detail farther out would mean several cells'
+  streamed detail at once, more than the 4.66 MB buffer holds.
 - In-world draws are mostly MODULATE + alpha test GREATER 8, fogged, vertex colours from V4-5
   unpacks.
 - **Levels**: the world is three levels, each a `WRLD` image (`.LVZ`) plus an archive (`.IMG`): 1 = BEACH (east
@@ -1119,6 +1131,67 @@ planes leave in the sky (seen outside the Little Havana Empire site, 08:28, 16:9
   kicks showed PATH2 and no ADC; `VCS_TRACE_IMMEDIATE=1` (callers of the Im2D / Im3D entries, `vcs_overrides.cpp`)
   named `0x245904` in the trail renderer.
 
+### 6l. Coronas, sprites, stars, signals, draw distance (2026-10-31, Project2DFX)
+
+Found porting ThirteenAG's Project2DFX for the PCSX2 fork (its MIT source names the addresses it patches:
+github.com/ThirteenAG/III.VC.SA.IV.Project2DFX, `source/console/GTAVCS.PCSX2F.Project2DFX`), each checked in the
+generated code and a headless Ghidra decompile (`src/game/vcs_project2dfx.cpp` uses them).
+- **CCoronas::Render = `FUN_0027C418`**, called once a frame at `0x21F268` (return `0x21F270`) in the 3D render
+  `FUN_0021EFB8`, between packet-buffer checks (`FUN_00476770`). 56 coronas at `0x512560`, 0x90 bytes each (position
+  +0x10, id +0x20). States on entry: Z write off (6, 0), (10, 1), src / dest blend 2 / 2; a second pass draws the
+  streaks with Z test off; it leaves Z write on, Z test on (GEQUAL), blends 2 / 2, no raster.
+  **CCoronas::RegisterCorona = `FUN_0027DD10`**(id, r, g, b, a, pos t1, type t2, ...) -> `FUN_0027DD80` with the
+  texture `gpCoronaTexture[type]` (`0x487758 + type x 4`; a texture's raster at +0).
+- **RwRenderStateSet = `FUN_00175198`**, jump table at `0x4A50A0` (states 1..12): 1 texture raster (the bind
+  `FUN_00408F30(raster, 1.0)`), 4 Z test (1: TEST_1 ZTST GEQUAL `0x50000`, 0: ALWAYS `0x30000`), 6 Z write (ZBUF_1's
+  ZMSK), 8 / 9 source / destination blend (`0x486018` / `0x48601C`, then `FUN_00175088` builds ALPHA_1), 11
+  `FUN_002F5F10(0, on)`, 12 a word at `0x4E1B30`; 2, 3, 5, 7, 10 do nothing.
+- **CSprite::CalcScreenCoors = `FUN_0039FC48`**(in, out, &w, &h, farClip t0): the point plus RSL's world offset
+  (`0x6FE980`, also added by RwIm3DTransform) through the screen matrix at `0x520A00` (`FUN_002F9E70`: the VU0
+  multiply-add `FUN_001AAA38`, x and y scaled by 1 / w, out.z = w); 0 when w is under the near plane `0x4CD130` (or past
+  the far one `0x4CD12C` with farClip); h = 448 / w, w = h x 1.4285715 / the aspect global `0x487488`.
+- **The sprite buffer**: `CSprite::RenderBufferedOneXLUSprite = FUN_0039FF48`(f12-f16 x, y, z, w, h; r, g, b, intens
+  a3 (s16), f17 recipz (unused), a t0) writes four Im2D vertices (16 bytes: u, v u16 | RGBA | x, y s16 | z u32) at
+  `0x709650 + n x 64` - corners clamped to 640 x 448 with u / v moved to match, colour x intens / 256, z through
+  `FUN_0039FBF0` (`FUN_002F9F58`: (P.z z + P'.z) / (P.w z) from the matrix at `0x520A40`, to int, >> 4) - and six
+  indices (b, b+1, b+2, b+3, b, b+2) at `0x70C650 + n x 12`; n = `0x489EC0`, it flushes at 96. **FlushSpriteBuffer =
+  `FUN_0039FDE8`**: while particles render (`0x4883A0`) it drops the sprites when the packet buffer is low; otherwise
+  `FUN_002FBE68(3, 0x709650, n x 4, 0x70C650, n x 6)` (Im2D indexed; with `0x489EC8` set between Z test 0 / 1).
+- **The temp buffers**: `0x709650` (0x3000 bytes: 512 Im3D vertices of 24 bytes - position, u, v, RGBA - or the
+  sprites' 96 quads) and `0x70C650` (1024 indices) are shared: the sprites, plane trails (6k) and a 2D batcher whose
+  counts are `0x4CD624` / `0x4CD628` (flushed by `FUN_003DFDD8`; "full" at 381 vertices / 1019 indices, `FUN_003DFDA0`).
+  Im3D: RwIm3DTransform `FUN_002FBFA8`(vertices, count, matrix or 0; returns 1), RwIm3DRenderIndexedPrimitive
+  `FUN_002FC2E8`(type, indices, count), RwIm3DEnd `FUN_002FC1F0`.
+- **Stars**: `CClouds::Render = FUN_0018CE80` draws the game's 11 stars (tables at `0x4863D8` / `0x486400` /
+  `0x486428`, twinkle from `FUN_00408058`), flushes them at `0x18D450` (return `0x18D458`), then binds the corona raster
+  and draws the moon.
+- **Traffic signals**: `CTrafficLights::DisplayActualLight = FUN_00313480`(signal; kept in `$s6`) calls
+  `FindTrafficLightType = FUN_003155C0` (forward (+0x10, +0x14): atan2 in degrees, 60-150 or 240-330 -> 1, else 2),
+  then `LightForCars1 = FUN_00313390` or `LightForCars2 = FUN_003133F0`: 0 green, 1 amber, 2 red, 3 off - blinking
+  amber ((ms & 0x400) ? 3 : 1) when the wind `0x4CD2A4` > 1.1, all green when `0x4883C0` is set, else from
+  t = (ms & 0x7FFF) >> 1 (1: green < 5000 < amber < 6000 < red; 2: red < 6000 < green < 11000 < amber < 12000 < red).
+  Its RegisterCorona calls return to `0x313E04`, `0x313EA4`, `0x3154A8`, `0x315568` (position in t1, on the stack).
+- **The flight ceiling**: `FUN_003EA618`(f12 height, a1 type), called from the flying controls `FUN_003EA6C8`
+  (helicopters / planes: lift x 10 / (excess + 10) when it returns > 0): types 1 / 2 -1 under 70 m, height - 70 under
+  80 m, height + 70 above; other types -1 under 80 m, height - 80 above. Project2DFX moves both 80s to 800.
+- **The packet buffer's free bytes** `FUN_00478628` = 0xE6670 - `FUN_00476770` (6i); the game checks it before costly
+  passes (`FUN_00240ED8` skips sectors under 0x12C00).
+- **Draw distance**: the render `FUN_0021E950` sets the world camera's far plane with `RwCameraSetFarClipPlane =
+  FUN_0018F400(camera, f12)` (stores +0x7C) to a **constant 2000 every frame** (call at `0x21EBB0`, return
+  `0x21EBB8`), then the fog start from the time cycle (`FUN_0018F4A8(camera, *(*0x486838 + 0x3310))`); the fog ends at
+  the far plane. CCamera::Process copies the far plane into `0x4CD12C` (entity culling), the sector frustum is built
+  from it, so it alone limits how far the world goes. The follow camera (`FUN_0029DAB0`) sets 1000 in interiors
+  (`0x489F7C` = CGame::currArea not 0 or 4). Every level's data carries the other islands' low-detail buildings: from
+  the mainland the beach island is drawn whole once the far plane reaches it (checked at 6000 from (-1500, -400):
+  hazy and cut at 2000, all of it at 6000).
+- **LOD distances**: CCamera::Process (`0x37AEE4..0x37B078`) sets `TheCamera + 0x7DC` = 70 / FOV (1.0 in the
+  frontend), raised with the camera's height over 55 m, capped at 2.0, copies it to `+0x7D0` (VC's generation
+  distance multiplier) and multiplies `+0x7DC` by **`0x4887F8` = CRenderer::ms_lodDistScale** (1.0 in the ELF; no code
+  writes it, CCamera::Process alone reads it). `+0x7DC` scales CSimpleModelInfo's LOD distances (+0x2C, count +0x38:
+  `FUN_003A52F8` GetAtomicFromDistance, `FUN_003A5380` the largest, `FUN_003A53E0`) and the vehicles' light coronas
+  (x 50 / 90 / 100, `FUN_00141FE8`). Raising the scale to 4 brought lamp posts, trees and small objects in along a
+  Little Havana road seen from 60 m up.
+
 ## 7. Textures: `.XTX`
 
 **Host replacement identity (2026-10-31).** PCSX2 packs match the GS texture as it is sampled, rather than the RAM
@@ -1136,6 +1209,14 @@ showed the flyover without a HUD and no matching HUD/radar textures. `rig.Game.n
 `player` control command to return a non-null player ped (`CWorld::Players[0].m_pPed`, `0x4E4910`, as already read by
 `src/debug/rig.cpp`) before reporting success, and keeps pressing Cross while
 waiting. Earlier empty-card benchmarks using only the area check may have measured the title camera.
+
+**The HUD's textures as the GS samples them (2026-10-31).** Seen through the HD HUD pack's matches with the user's save
+(Fort Baxter and two city spots, PCSX2 identity bits = PSM | TW << 6 | TH << 10, the pack's PNGs looked at): the radar
+map is drawn from 128x128 PSMT4 sections (bits 0x1DD4; 12 different ones over three places, each its own CLUT); the
+radar's north marker and blips are 16x16 PSMT8 (0x1113); the HUD's small pixel font (the ammo count "199-17") is one
+256x256 PSMT4 page (0x2214). The clock and money digits do not take the renderer's anisotropic path (bilinear with
+plain repeat / clamp): their 16x replacement alias the way only the unfiltered full-resolution path does, so those
+sprites are nearest-filtered or region-clamped (TEXTURE_PACKS.md, Checks).
 
 Confirmed from `LOADSC*.XTX` (263,372 bytes each, 512x512 8-bit):
 - `0x00` magic `"xet\0"`; `0x08` file size; `0x0C` / `0x10` offset of the trailing relocation table
@@ -2192,6 +2273,29 @@ anim tree - from first person's status - dumped standing and running; spawned pe
   ADD_EXPLOSION of type 0 (a grenade's) 2 m from a lying body threw it 7.3 m, and the ped 2 m on its other side died
   and was thrown by the blast's own throw (the game's 11 m/s left out).
 
+- **The streaming heap** is the CMemoryHeap at **0x51F420** (FUN_003C6478 allocates stream buffers from it through
+  FUN_002BC730): +4 the out-of-memory callback (0x21C300), **+8 the free blocks** (a tree: +0 size, +8 / +0xC children;
+  FUN_002BBB00 = the largest free block), **+0x14 bytes allocated** - 5.4 - 5.5 MB in play, with 0.1 - 0.3 MB free in
+  20 - 50 blocks (largest 30 - 80 KB): a cache kept full. RequestModel calls **FUN_003CB760**(streaming, bytes) first,
+  which evicts least-recently-used streamed objects (FUN_003C9F10) until the largest free block fits, so a bigger file
+  costs world data, not a failure (a 500 KB Colt45 loaded). Every weapon a ped carries stays loaded (its model's refs),
+  so the converted weapons were kept at 25 - 110 KB each (VCS's: 2 - 13 KB); a full inventory costs ~0.6 MB.
+- **Weapon frames**: SA and VCS share the convention (x along the barrel, z up, the grip near the hand bone's origin),
+  but VCS's grips sit ~6 cm further forward and ~2.5 cm higher in the hand frame (the median over the guns fitted to
+  VCS's own models at the grip), and VCS's long melee weapons lean ~20 degrees forward about y (golf club 21, bat and
+  katana 18, knife 12). The minigun's barrels (model 366, dictionary 7847 = slot 313) are drawn spinning about their own
+  x axis, their front end at the model's origin (VCS's: x -0.456 .. 0.017). VCS's rocket (345) points along -y.
+- **The hand**: a ped's right hand is bone **15** of its anim tree (12c), the weapon drawn in its frame. The tree from
+  the ped: `*(*(*(ped + 0x50) + 8) - 0x1C + 0x2C)` (the clump's first atomic +0x2C; FUN_0019b478 -> FUN_0024ebb0).
+- **Script cameras** (VCS opcodes, Sanny Builder Library vcs.json): SET_FIXED_CAMERA_POSITION **0x00B9** (x y z, 3
+  rotations), POINT_CAMERA_AT_POINT **0x00BA** (x y z, switch style), POINT_CAMERA_AT_CHAR 0x00B5, RESTORE_CAMERA 0x00B6;
+  SET_CURRENT_CHAR_WEAPON 0x010B, SET_CHAR_AMMO 0x00D5, SET_ANIM_GROUP_FOR_CHAR 0x015F.
+- **Converted models** draw without back-face culling (strips of either winding came out whole), so one side of a
+  double-sided SA surface is enough. Material +0xC is an extension pointer (FUN_0042C0F0 reads its +0xC flags; flag 2 =
+  drawn in the second, alpha pass); 0 = none.
+- Note for test runs: vcs_stream_override's folder walk fails silently on paths near MAX_PATH; a mods folder under a
+  long path (the agent scratchpad) loaded nothing - use a short one.
+
 ### 12i. Animation blocks - the Immersive Weapons Pack's animations (2026-10-31)
 
 Found by reading the 'mina' chunks from the disc (CStreaming ids 8392 + the block) and the generated code.
@@ -2324,7 +2428,7 @@ anim tree - from first person's status - dumped standing and running; spawned pe
   ADD_EXPLOSION of type 0 (a grenade's) 2 m from a lying body threw it 7.3 m, and the ped 2 m on its other side died
   and was thrown by the blast's own throw (the game's 11 m/s left out).
 
-### 12i. Model infos by name, vegetation models - the 80's VC True Vegetation port (2026-10-31)
+### 12j. Model infos by name, vegetation models - the 80's VC True Vegetation port (2026-10-31)
 
 Found with RAM dumps of a hidden run (the rig's `dump`) and the models read from the disc (`tools/veg_convert.py`).
 - **Model infos start 0x24 before their vtable word** (GCC 2's vptr placement): +8 the name hash, +0x1E the texture

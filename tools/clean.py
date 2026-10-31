@@ -25,6 +25,8 @@ import toolchain as tc  # noqa: E402
 PROTECTED = [
     "release", "tools", "build-tools", "analyzer", "iop_tests", "elf", "vu1", "analysis",
     "rig/saves", "regress/baseline", "scenes/reference", "pgo/vcs.profdata", "msvc_env.json",
+    "p2dfx",  # the imported Project2DFX light table (tools/p2dfx.py)
+    "mods",  # converted mods (tools/weapon_convert.py, tools/veg_convert.py): the game reads them
 ]
 
 

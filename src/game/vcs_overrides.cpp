@@ -27,6 +27,7 @@
 #include "game/vcs_freecam.h"
 #include "game/vcs_hud.h"
 #include "game/vcs_jolt.h"
+#include "game/vcs_project2dfx.h"
 #include "game/vcs_rsl_native.h"
 #include "game/vcs_rsl_world.h"
 #include "ps2_runtime.h"
@@ -906,6 +907,7 @@ namespace
         vcs::freeaim::install(runtime);     // SA's free aim: no lock-on, shots along the camera (game/vcs_freeaim.h)
         vcs::carglass::install(runtime);    // in-car first person: the vehicle's windows not drawn (game/vcs_carglass.h)
         vcs::streamoverride::install(runtime); // streamed files from mods/stream/<id>.* (game/vcs_stream_override.h)
+        vcs::p2dfx::install(runtime);       // Project2DFX: distant lights, stars, traffic (game/vcs_project2dfx.h)
         vcs::installFrameRateHooks(runtime); // 30 / 60 fps (game/vcs_framerate.h)
         vcs::installScriptTimingHooks(runtime); // per-frame mission meters on the time step (game/vcs_script_timing.h)
         vcs::installPhysicsTimingHooks(runtime); // per-frame vehicle pushes on the time step (game/vcs_physics_timing.h)
