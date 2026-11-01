@@ -2,6 +2,8 @@
 
 ## 2026-10-31 - RenderHook-style graphics: ambient occlusion (RenderHook.asi)
 
+- Blob shadows (the user's request): the game's ped / car / bike blobs hidden while AO or sun shadows are on
+  (RenderHook.asi hooks CShadows::StoreShadowToBeRendered 0x38A000; game-internals.md 6o).
 - Sun shadows fix (the user's report: shadows vanished / cut off when turning the camera): the renderer tracks the camera's
   position from static world meshes and keeps drawing static meshes seen before while they are off screen (not LOD meshes
   replaced in view); the mod snaps the cascades to the world. RENDERHOOK_PLAN.md "Sun shadows, fix".
@@ -1029,6 +1031,7 @@ Python scripts still usable on their own. docs/LAUNCHER.md has the whole of it; 
 | `VCS_P2DFX_HOOKS=0`, `VCS_P2DFX_VERIFY=1` | no Project2DFX hooks (the reference); the native projection / sprite writer checked against every call of the game's own (counts in the `p2dfx` control command) |
 | `VCS_RH_AO=0..3`, `VCS_RH_AO_RADIUS=50..300` | RenderHook.asi's ambient occlusion (off / subtle / normal / strong) and its radius in cm, for one run |
 | `rhtaa objects 0\|1`, `rhtaa mv 4` | per-object motion off / on in the checks; the renderer's velocity buffer (red covered, green moved, blue depth agrees) |
+| `VCS_RH_BLOB_SHADOWS=0..2`, `VCS_RH_BLOB_HOOKS=0`, `VCS_RH_BLOB_LOG=1` | RenderHook.asi: the game's ped / car / bike blob shadows auto (hidden with AO or sun shadows) / shown / hidden; no hook; log the first stores (control channel: `rhblobs`) |
 | `PS2X_HW_SHADOW_CACHE=0` | shadow maps: only this frame's draws cast (no remembered off-screen static meshes; comparisons) |
 | `VCS_RH_SHADOWS=0..3`, `VCS_RH_SHADOW_DISTANCE=50..400`, `VCS_RH_SHADOW_QUALITY=0..2`, `VCS_RH_SHADOW_VIEW=1` | RenderHook.asi sun shadows: off / soft / normal / dark, distance (m), 1024 / 2048 / 4096 per cascade, the debug view (control channel: `rhshadow [view 0/1]`) |
 | `VCS_RH_DLAA=0/1`, `VCS_RH_DLAA_JITTER_SIGN=-1`, `VCS_RH_DLAA_MV_SIGN=-1` | RenderHook.asi DLAA (NGX; D3D11; control channel: `rhdlaa`); the signs flip the jitter / motion vectors handed to DLSS (diagnostics) |

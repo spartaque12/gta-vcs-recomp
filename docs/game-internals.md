@@ -1245,6 +1245,24 @@ the exe's `-ffp-contract=off`, docs/MODDING.md).
   are drawn by paths that still use the original mesh (likely the 0x02c0 re-draws over a resident mesh, 6d; not
   confirmed), so the refined and the coarse surface fight in depth. Peds show nothing of the kind.
 
+### 6o. Blob shadows: CShadows (2026-11-01, RenderHook.asi)
+
+Found to hide the ped / car blobs under RenderHook's ambient occlusion (a RAM dump of 17:00 Downtown, a small R5900
+disassembler over it; Ghidra was not installed). VC's CShadows layout, at these addresses:
+- **Textures**: the names `shad_car`, `shad_ped`, `shad_heli`, `shad_bike`, `shad_rcbaron`, `shad_exp` at 0x4B9580..
+  (16 bytes apart); `CShadows::Init` (code around 0x389700) looks each up (0x346C80) and keeps the RwTexture pointers in
+  `gpShadowCarTex` 0x489168, `gpShadowPedTex` 0x48916C, heli 0x489170, bike 0x489174, RC Baron 0x489178, explosion
+  0x48917C (and more after: 0x489180, 0x489190 are other shadow textures of the same table).
+- **`CShadows::StoreShadowToBeRendered(type, tex, pos, ...)` = 0x38A000**: a0 the shadow type (1 dark, 2 additive),
+  a1 the texture, a2 the position; up to 48 entries of 64 bytes at 0x6FB980, the count (u16) at 0x4CD5F2. The overload
+  by texture number (`StoreShadowToBeRendered(uint8 tex, ...)`, 0x389E88: a jump table at 0x4C9680 over 7 cases loading
+  one of the pointers above) calls it. Ped blobs come from 0x38B128 (in FUN_0038AE30, VC's StoreShadowForPedObject),
+  vehicles' from FUN_0038A118 (StoreShadowForCar: car / bike / heli / RC Baron by vehicle type).
+- **0x3898E8** is a second 48 x 64-byte store at 0x6FDD80 (texture at +48, type +54); peds' code in FUN_001FA930 calls it
+  with the ped texture, but a hook there saw no call in normal play (likely the permanent / special shadows).
+- Hiding a blob: return from 0x38A000 for those textures (RenderHook.asi `blobs.cpp`; 480 dropped in 4 s of a street
+  with peds, other shadows passed on).
+
 ### 6n. The sun's direction and the camera's rotation (2026-11-01, RenderHook.asi sun shadows)
 
 - **Sun vectors**: `0x4E7200` holds 16 vectors of 16 bytes (x, y, z, 0: unit length, world space - x east, y north, z

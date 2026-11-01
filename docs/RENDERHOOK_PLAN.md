@@ -208,6 +208,15 @@ building left the view, and half-drawn buildings left straight-cut shadows (the 
   around vanished as they left the view; after, 900-1400 remembered casters keep them in every direction. Cost: render
   thread +1 ms or less, GPU unchanged (~0.2 ms at 1080p). `PS2X_HW_SHADOW_CACHE=0` draws only the frame's own casters.
 
+## Blob shadows hidden with AO / sun shadows (done 2026-11-01)
+
+The user's request: no blob under peds and cars while AO is on (the two together left a dark smudge under every ped).
+`blobs.cpp` hooks `CShadows::StoreShadowToBeRendered` (0x38A000, game-internals.md 6o) and drops the shadows whose
+texture is the ped, car or bike one; helicopter / RC shadows, the explosions' light and everything else pass. Setting
+`renderhook.blob_shadows` Auto (hidden while AO or sun shadows are on; the default) / Shown (original) / Hidden
+(`VCS_RH_BLOB_SHADOWS`); `rhblobs` reports dropped / passed; `VCS_RH_BLOB_HOOKS=0` hooks nothing; `VCS_RH_BLOB_LOG=1`
+logs the first calls. Checked (`build/aotest/rh_blob3`): with AO on, the blob under the player gone in Auto, back in Shown.
+
 ## Next
 
 2. Sun shadows step 2: alpha-tested casters (palm leaves) with their textures, the game's blob shadows optional, weather.
