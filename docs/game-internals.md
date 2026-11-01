@@ -2884,6 +2884,47 @@ place in the view's frame) and screenshots.
   `waitNextFrame` (frame lead). An OpenXR mod's xrEndFrame + xrWaitFrame + xrBeginFrame in the present hook paces the
   whole loop to the headset; the next game frame then reads the new head pose.
 
+### 12v. Head shots - how CPed::InflictDamage decides a critical hit (PedSkills.asi, 2026-11-01)
+
+Found for VCS-mods `plugins/PedSkills` from the generated code of **CPed::InflictDamage (FUN_001D7940**; ped a0 -> s1,
+attacker a1 -> s5, weapon a2 -> s6, damage f12 -> f21, piece a3 -> s3, direction t0 -> s2; 12h) and its jump tables in
+the ELF (build/elf: by weapon at 0x4A9BB0, 48 entries; by piece at 0x4A9C70, 7), checked in hidden runs. It is VC's rule
+("critical hits"); VCS has no sniper-only test.
+- **Weapon cases** (the table at 0x1D7D48): 0 / 1 -> 0x1D7D60 (fists), 2 - 11 -> 0x1D7DD4 (melee), 12 / 15 / 18 / 32 / 44
+  -> 0x1D8024 (blasts: random limbs off by FUN_001D8C20 when the damage kills and `nastyGame`), 17 -> 0x1D813C (the
+  Molotov), 33 -> 0x1D8008 (fire), **19, 21 - 31, 34, 35, 45 -> 0x1D7E3C (bullets)**, 20 (Python), 37 and 13 / 14 / 16 /
+  36 / 38 - 41 -> 0x1D83D8 (no hit logic: the damage only), 42 / 43 (vehicles) -> 0x1D8158, 46 / 47 their own. The cases are skipped (s0 = 0) when the victim is falling or
+  getting up (state 0x2D / 0x2E, 0x1D7C6C - 0x1D7D34) - a shotgun's knock-back puts its victim there before a pellet's
+  damage.
+- **The bullet case** (0x1D7E3C): entity flags +0x48 bit 26 (bullet proof) -> no damage. Then, **unless the victim
+  IsPlayer (FUN_0020C310 = ped type +0x550 == 0; called at 0x1D7E50, ra 0x1D7E58) or has ped +0x1D0 bit 9** (VC's
+  bNoCriticalHits; missions set it), the **per-piece branch** is taken: always for types 28 - 31 (M4, Ruger, sniper
+  rifles) and 34 (M60), else when **rand() (FUN_00408058) & 15 == 0** (ra 0x1D7EB4), shotguns **& 7** (21, ra
+  0x1D7EA4); otherwise a generic hit animation (s4 0x10; the shotguns by the direction, 0x1C - 0x1F).
+- **The per-piece branch** (the table at 0x1D7F30; VC's pieces): 0 / 1 torso / mid -> s4 0x10, 2 - 5 an arm / leg ->
+  FUN_001D8C20 on it (nothing unless it kills, see below) and s4 0x16 - 0x19, **6 head -> 0x1D7F48: FUN_001D8C20(ped, 2,
+  direction) = CPed::RemoveBodyPart(head)** (with `nastyGame` 0x489F80 and the ped on screen: the head hidden and blood
+  - the head pop), **s4 = 0x14 (the face-hit death) and s7 = 1, fp = 1** (VC's headShot / bodyPartHit).
+- **s7 kills**: after the armour (+0x4E8 takes the damage first, except weapons 46 / 47) the health (+0x4E4) - damage
+  is stored only when it stays over 1 **and s7 is 0** (0x1D85C8); with s7 the ped dies (SetDie FUN_0020A3B8 with s4,
+  CDarkel / stats with fp = head shot) whatever its health or armour. So a sniper's head shot kills because the sniper
+  always takes the branch; a pistol's does 1 time in 16.
+- **The mod** (Game > Ped skills, `pedskills.headshots` on, `pedskills.everyone` off): a before-hook on rand() answers 0
+  at ra 0x1D7EA4 / 0x1D7EB4 when s3 (the piece) is 6 and the shooter (s5) is the player (`*(0x4E4910 + 0x190 x
+  byte 0x4CD128)`, FindPlayerPed FUN_0024A430) or anyone with "everyone" - the game's own head-shot branch then runs;
+  a before-hook on IsPlayer answers 0 at ra 0x1D7E58 for a head hit by a bullet weapon with "everyone" (Vic one-shot);
+  a before-hook on InflictDamage raises the damage to health + armour + 100 for a head hit that never reaches the
+  bullet case - the Python's, and any bullet weapon's on a victim in state 0x2D / 0x2E - under the same rules (no head
+  pop there: the normal death). bNoCriticalHits peds, bullet-proof peds, the checks before the weapon cases (invulnerable,
+  "only damaged by the player", dying / dead) stay the game's. Melee, blasts, fire never reach these paths.
+- Checked (hidden, exe copy, free aim in first person, a fresh ped 4 m away with its back turned and 500 health per
+  shot; `VCS_PEDSKILLS_LOG=1` logs every hit of the player's and every head shot made): one head shot killed with the
+  Colt45 (rand forced), Uzi (rand forced), M4 (the game's own branch), Shotgun (the pellet's victim knocked down first:
+  the damage path) and Python (the damage path), each a Jolt ragdoll; a Colt45 chest shot did 25 damage (100 -> 67.5,
+  piece 0); setting off: head hits did 25, now and then one killed (the game's own 1 in 16). Aim: the head piece is the
+  sphere around ped z + 0.65 - 0.8 (z + 0.62 at 4 m hit the shoulder / arm, piece 3, with the Uzi's lower eye).
+  "Everyone" (an NPC's head shot on Vic) was not run.
+
 ## 13. Open questions / next research targets
 
 - Main loop, frame limiter, CTimer (section 4) - milestone 4 (60 fps).
