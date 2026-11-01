@@ -2769,6 +2769,33 @@ off -, SeverPower, HeadBurst - a head hit destroys the head; ExplosionChance 0.6
   parts off (both upper arms, a thigh, a calf), all 12 of their bones drawn collapsed, 98 blood drops in 2.5 s and
   still coming; with the setting off, none. Head shots by a sniper rifle were not tried (no aimed shot in the rig
   without the camera mod); hit reactions and bike falls still pass.
+- **A head kept whole** (2026-11-01, JoltPhysics.asi, Game > Physics > Keep severed heads, on): the head's Jolt body
+  lets go of the neck (its swing-twist constraint disabled) and is thrown up and aside. Drawing it was the work:
+  - **One skinned mesh can't be cut by bone matrices**: a ped's skin weights the neck's vertices across the neck (bone 4)
+    and the head (5), and the chest's across 3 / 4, so with the head 2 m away whichever bones go with it, a band of skin
+    stretches from the body to it (seen: a 2 m strip). It takes a second draw of the ped: the body with the head bones
+    collapsed into the stump (the stump as before, at the neck bone's end), then the head alone - every other bone's
+    matrix collapsed onto the head's joint, so the mixed vertices close up its bottom.
+  - **CPed::Render (FUN_00200660) only builds the bones** (FUN_003c3250, then FUN_0020c310 at 0x200740); calling it twice
+    drew the ped once, with the second call's bones. The renderer calls the skinned element's render callback
+    **FUN_0036eb70** (a0 the element; it returns the element) later, and what that queues is drawn at the frame's end
+    through **element -> anim tree (a word of the element's first 0x40 bytes) -> its matrices (tree +0x28)** - the
+    matrices' address is nowhere else in RAM (a scan of the heap and packet buffers), so a second draw needs a second
+    element, tree and matrices. The tree is 0x400 bytes before its matrices in every tree seen.
+  - The hook on FUN_0036eb70: for a ped with a loose part, a copy of the element pointing at a copy of the tree pointing
+    at matrices of its own (the part alone), passed to the callback after the element itself through a continuation
+    (0x36EB74, no entry there). The copies live in 8 slots (0xA80 bytes each) taken once from the main heap through
+    **FUN_002BD178(size)** (malloc; called through a continuation at 0x36EB78) - 21 KB, never freed; more loose parts in
+    one frame than slots are drawn as stumps.
+  - Checked with `VCS_JOLT_HEADSHOTS=1` (every killing hit takes the head) and a Shotgun at 3 m, first person to see past
+    Vic: the head flew 0.6 m up and came to rest ~2 m from the body, face and hair drawn, the body with its closed stump,
+    nothing between them; gore_check and ragdoll_check pass.
+- **First person on a ragdoll** (CameraAim.asi with JoltPhysics.asi, 2026-11-01): JoltPhysics.asi exports
+  `JoltPhysicsPlayerRagdoll` (1 while Vic's body is a ragdoll, not a hit reaction); CameraAim keeps first person on
+  through it (whatever the game's camera mode, e.g. Wasted's) with the eyes on the drawn head's axes and the view along
+  the face, its up the head's (rolling), eased in over 0.2 s and out over 0.5 s to a level mouse view the way the face
+  last looked; the mouse doesn't turn the view or the body meanwhile. Checked: Vic killed in first person - the eyes went
+  from 0.74 m over his position to 0.77 m under it as the body fell, the view tumbling down along his legs and hands.
 
 ### 12q. Foot IK - feet on the ground on slopes and stairs (2026-10-31)
 
