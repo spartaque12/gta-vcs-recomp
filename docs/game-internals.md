@@ -2553,7 +2553,13 @@ Found with RAM dumps of a hidden run (the rig's `dump`) and the models read from
   41.2 m against VC's 24 x 13.5 x 29), 76 - 602 triangles, 1 - 4 sectors, dictionaries of 6 - 7 sectors.
 - **Map objects are prelit**: the same 'ldm' as the weapons (12g) but geometry flags **0xD** (weapons 7) and per batch
   V3-16 positions at 1, **V2-8 uv at 0x48**, **V4-5 colours (RGBA 5551) at 0x8F**, MSCAL 6 (the VU1 program reads the
-  layout the flags give). The palms' colour is a flat `0xAD6B` (88, 88, 88 of 128).
+  layout the flags give). The vertex colours are greys baked per vertex, not one flat
+  colour (corrected 2026-11-01, every V4-5 at 0x8F of each model counted): the palms 48 - 120 of 255 (`0xAD6B`, 88,
+  the most common; darker at the trunk's foot, lighter higher up), the leaf trees 0 - 48. VCS draws prelit colour x
+  texture with no further lighting of its own on these, so its night look is in the textures' darkness: VC's bark
+  (mean luminance of solid texels 62 - 77) and leaves (47) against SA BSOR's 110 - 136 and 52 - 112. Matched by
+  tools/veg_convert.py (`vcs_prelight`, `gains`): the game model's greys by height, times VCS texture / pack texture
+  brightness per class (bark, leaves) - 0.30 - 0.90.
 - **Texture dictionaries ('xet')**: of the 2,748 textures in the dictionaries (ids 7534 - 8364) 2,034 are 4-bit -
   raster word +4 `0x0045 << 16 | width / 2`, flags `log2 w | log2 h << 6 | 4 << 12 | 1 << 20` (one level), pixels
   linear with the even pixel in the low nibble, then a 16-entry CT32 CLUT (alpha 0x80 = opaque), 32 x 16 to 256 x 256 -

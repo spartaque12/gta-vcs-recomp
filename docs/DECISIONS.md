@@ -1150,6 +1150,21 @@ The user switched the source from the 80's VC pack to BSOR Vegetation, a GTA SA 
   three textures are not seen and get none. The VC pack's 25 replacement images were moved out of the vegetation
   folder (build/veg_test/feet/hd_vc), since their names no longer match anything.
 
+- **Upright palms only** (the user's request, 2026-11-01: "swap all these angled palms in whole game with straight
+  placed palms"): `veg_convert.py --straight` builds BSOR's leaning / bent designs from upright ones of the same pack -
+  veg_palm01 from veg_palm02, veg_palm03 from veg_palm04, veg_palwee01 from veg_palwee02 (crown offsets from the foot
+  were 17, 27 and 16 m; now under 1 m for every palm). Scaled to the VCS model's height and stood on its foot as the
+  others; the textures are the sources' (same names, so the full-size pack still matches). The game's collision is
+  still the VCS model's own (VCS's veg_palm01 / 03 / palwee01 lean too): a car can touch an unseen leaning trunk.
+  Installed in build/mods with --straight; the leaning set's full-size images kept in build/veg_test/feet/hd_bsor_lean.
+- **The game's prelighting and brightness** (the user, 2026-11-01: "need fix prelight, its lit in evening"): the
+  converter gave every vertex VCS's flat 88 grey, so SA's pale bark stayed light grey at 22:00 beside the game's dark
+  palms (SA darkens it with its own night lighting; VCS draws prelit colour x texture). Now each vertex takes the game
+  model's mean grey at its height, times the factor that brings the pack texture to the game's texture brightness for
+  its class (bark / leaves): 0.42 - 0.90 on the palms, 0.30 - 0.77 on the leaf trees. Never brightened (at most 1).
+  Textures are untouched, so the names, the full-size pack and the wind list stay. Checked at 22:00 and 13:00 against
+  the game's own palms (build/veg_test/wind/night_lit_cmp.png, noon_lit_cmp.png).
+
 ## 2026-10-31 - SkyGfx Extended's vegetation wind: what it is, a plan for the native renderer (research, not built)
 
 Read from the user's copy (extracted to build/analysis/skygfx_ext, nothing run; the two D3D9 vertex shaders in

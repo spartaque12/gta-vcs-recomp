@@ -12,7 +12,8 @@ taller, so each pack model is scaled to the VCS model's height (its footprint th
 put where the VCS model's stands (trunk_foot). Map objects are prelit:
 per material a mesh whose DMA packet (RET) holds batches of <= 70 strip vertices - V3-16 positions at 1, V2-8 uv at
 0x48, V4-5 colours (RGBA 5551) at 0x8F, MSCAL 6, geometry flags 0xD - as the game's own palms. The colour is the VCS
-palms' own grey (0xAD6B) times the pack's material colour. The pack's palms are 4.9k - 10.5k triangles, and every 68
+model's own grey at that height (vcs_prelight) times the pack's material colour and a gain that brings the pack's
+texture to the VCS texture's brightness (gains: SA's bark is far paler than VC's, and VCS has no night lighting to darken it). The pack's palms are 4.9k - 10.5k triangles, and every 68
 strip vertices are a VU1 batch - a draw. Their leaves are double-sided cards (each face twice, reversed, for PC's
 culling); VCS draws both sides of a triangle, so one face of each pair is kept. The cards themselves stay as made:
 simplified (tools/mesh_simplify.py) or thinned they turned to confetti in the game. Only the opaque parts - trunks,
@@ -49,6 +50,10 @@ TREES = {
     "veg_treea3": (543, 0x3119, 2, 7912, 0x3113, 6),
     "veg_treeb1": (542, 0x3111, 2, 7911, 0x310b, 6),
 }
+# --straight (the user's request, 2026-11-01): the leaning / bent palms built from an upright one of the pack instead -
+# BSOR's veg_palm01 leans 17 m off its foot, veg_palm03 bends 27 m, veg_palwee01 16 m; the others stand within 1 m.
+# Still scaled to the VCS model's height and stood on its trunk's foot; the game's collision is the VCS model's.
+STRAIGHT = {"veg_palm01": "veg_palm02", "veg_palm03": "veg_palm04", "veg_palwee01": "veg_palwee02"}
 VCS_GREY = 0xAD6B  # the game's palms' vertex colour: 88, 88, 88 (128 = 1.0), opaque
 PACK_DIR = "80's vc True vegetation/original game Installation/"  # the pack's VC 1.0 install (not Vice Cry's)
 
@@ -346,6 +351,90 @@ def vcs_verts(vd):
     return out
 
 
+def vcs_prelight(vd, bins=16):
+    """The VCS model's prelighting by height: the mean RGB (5-bit) of its vertex colours (V4-5 at 0x8F, after each
+    batch's V3-16 positions) in `bins` bands from its lowest to its highest vertex. The game's palms are 48 - 120 grey,
+    darker at the trunk's foot and inside the crown, its leaf trees 0 - 48 (game-internals.md 12j)"""
+    el = wc.u32(vd, 0x20)
+    g = wc.u32(vd, el + 0x14) + 0x20
+    sc = struct.unpack_from("<3f", vd, g + 0x28)
+    po = struct.unpack_from("<3f", vd, g + 0x34)
+    pairs, zs = [], None
+    for o in range(0, len(vd) - 4, 4):
+        w = wc.u32(vd, o)
+        n = w >> 16 & 0xFF
+        if w >> 24 == 0x79 and w & 0xFFFF == 0x8001 and 1 <= n <= 80 and o + 4 + 6 * n <= len(vd):
+            zs = [po[2] + sc[2] * v[2] / 32768 for v in struct.iter_unpack("<3h", vd[o + 4:o + 4 + 6 * n])]
+        elif w >> 24 & 0x7F == 0x6F and w & 0x3FF == 0x8F and zs and n == len(zs):
+            pairs += zip(zs, struct.unpack_from("<%dH" % n, vd, o + 4))
+            zs = None
+    if not pairs:
+        return None
+    lo, hi = min(z for z, _ in pairs), max(z for z, _ in pairs)
+    acc = [[0, 0, 0, 0] for _ in range(bins)]
+    for z, c in pairs:
+        b = acc[min(bins - 1, int((z - lo) / max(hi - lo, 1e-6) * bins))]
+        for i in range(3):
+            b[i] += c >> (5 * i) & 31
+        b[3] += 1
+    means = [[a[i] / a[3] for i in range(3)] if a[3] else None for a in acc]
+    for i in range(bins):  # empty bands: the nearest filled one
+        if means[i] is None:
+            means[i] = next(means[j] for d in range(1, bins) for j in (i - d, i + d) if 0 <= j < bins and means[j])
+    return lo, hi, means
+
+
+def lit(prelight, z, colour, gain=1.0):
+    """the VCS prelighting at height z (vcs_prelight) times a material colour (0..255) and a gain, as RGBA 5551"""
+    lo, hi, means = prelight
+    m = means[min(len(means) - 1, max(0, int((z - lo) / max(hi - lo, 1e-6) * len(means))))]
+    c5 = [max(0, min(31, round(m[i] * colour[i] / 255 * gain))) for i in range(3)]
+    return c5[0] | c5[1] << 5 | c5[2] << 10 | 0x8000
+
+
+def brightness(w, h, rgba):
+    """mean luminance (0..255) of a texture's solid texels (alpha at least half, 0..255 scale); None without any"""
+    s = n = 0
+    for i in range(0, w * h * 4, 4):
+        if rgba[i + 3] >= 128:
+            s += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2]
+            n += 1
+    return s / n if n else None
+
+
+def vcs_textures(vt):
+    """the VCS model's own textures from its dictionary ('xet'), decoded: [(w, h, RGBA with alpha 0..255)]"""
+    out = []
+    for _, _, fl, data in wc.read_xet(vt):
+        w, h = 1 << (fl & 0x3F), 1 << (fl >> 6 & 0x3F)
+        if fl >> 12 & 0x3F not in (4, 8):
+            continue
+        px = decoded(w, h, {"flags": fl, "data": data})
+        out.append((w, h, bytes(v if i & 3 != 3 else min(255, v * 255 // 128) for i, v in enumerate(px))))
+    return out
+
+
+def gains(vt, textures, used, log=print):
+    """per pack texture, the factor that gives the converted model the game model's brightness (vertex colour x
+    texture): the game's bark and leaves (VC's) are darker than SA's, which SA darkens with its own lighting at night -
+    VCS draws prelit colour x texture alone, so the pale SA bark under VCS's grey stayed light at night (the user,
+    2026-11-01). Leaves (cut-out) and the rest compared apart; mean luminance of solid texels"""
+    ref = {True: [], False: []}
+    for w, h, rgba in vcs_textures(vt) if vt else []:
+        b = brightness(w, h, rgba)
+        if b:
+            ref[cut_out((w, h, rgba))].append(b)
+    out = {}
+    for tex in used:
+        t = textures.get(tex)
+        b = brightness(*t) if t else None
+        r = ref[cut_out(t)] if t else []
+        out[tex] = min(1.0, (sum(r) / len(r)) / b) if b and r else 1.0
+        log("  %-26s brightness %5.1f, the game's %s %5.1f: x%.2f" % (
+            tex, b or 0, "leaves" if t and cut_out(t) else "bark", sum(r) / len(r) if r else 0, out[tex]))
+    return out
+
+
 def trunk_foot(ps, band=0.5):
     """(x, y, z) of a tree's foot: the lowest point's z, x / y the middle of what lies within `band` of it (the trunk's
     bottom ring in every model of the pack and of VCS)"""
@@ -390,16 +479,21 @@ def wind_line(name):
     return "%s %.9g %.9g %.9g 0 %d\n" % (name, k, k, k, round(WIND_REACH / k))
 
 
-def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_max=256, log=print, hd=None):
+def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_max=256, log=print, hd=None, vt=None):
     raw = load_tris(dff)
     hidden = {tex for tex, _, _, _ in raw if textures.get(tex) and not any(textures[tex][2][3::4])}
     if hidden:  # fully transparent textures: alpha-tested away on PC too
         log("  %d triangles of %s (fully transparent, never seen) left out" % (
             sum(1 for t in raw if t[0] in hidden), ", ".join(sorted(hidden))))
         raw = [t for t in raw if t[0] not in hidden]
-    tint = {}
+    tint, mcol = {}, {}
     for tex, _, _, col in raw:
         tint.setdefault(tex, tinted(col))
+        mcol.setdefault(tex, col)
+    # the game's own prelighting by height (the model is stood in the VCS model's space below), else VCS's flat grey:
+    # the flat 88 grey lit the pack's pale bark up at night next to the game's darker palms (the user, 2026-11-01)
+    prelight = vcs_prelight(vd)
+    gain = gains(vt, textures, list(mcol), log)
     allp = [p for _, ps, _, _ in raw for p in ps]
     lo = [min(p[i] for p in allp) for i in range(3)]
     hi = [max(p[i] for p in allp) for i in range(3)]
@@ -468,7 +562,7 @@ def convert(name, dff, textures, vd, model_id, out_mdl, out_xet, tris=600, tex_m
                 key = (q(p), wc.uv8(uv, prm))
                 if key not in weldv:
                     weldv[key] = len(rep)
-                    rep.append((p, uv, tint[tex]))
+                    rep.append((p, uv, lit(prelight, p[2], mcol[tex], gain[tex]) if prelight else tint[tex]))
                 t.append(weldv[key])
             if len(set(t)) == 3:
                 tl.append(tuple(t))
@@ -614,6 +708,8 @@ def main():
     ap.add_argument("--pack", help="the 80's VC True Vegetation zip (or its unpacked folder), or BSOR Vegetation's "
                     "modloader folder (SA; found by its 'files dff' folder)")
     ap.add_argument("--only", help="comma-separated model names")
+    ap.add_argument("--straight", action="store_true", help="the leaning / bent palms (%s) from upright ones of the "
+                    "pack (%s)" % (", ".join(STRAIGHT), ", ".join(STRAIGHT[k] for k in STRAIGHT)))
     ap.add_argument("--tris", type=int, default=600, help="the opaque parts' (trunks') triangle budget per model; the leaf cards stay as made")
     ap.add_argument("--tex", type=int, default=256, help="largest texture side")
     ap.add_argument("--mods", default=os.path.join(tc.BUILD, "mods"))
@@ -644,11 +740,15 @@ def main():
     pack = open_pack(a.pack)
     print("pack:", pack.kind)
     try:
-        missing = [name for name in models if not pack.has(name)]
+        source = {name: STRAIGHT.get(name, name) if a.straight else name for name in models}
+        missing = [name for name in models if not pack.has(source[name])]
         if missing:
             print("not in the pack (the game's own stay): " + ", ".join(missing))
             models = {k: v for k, v in models.items() if k not in missing}
-        dffs = {name: pack.dff(name) for name in models}
+        for name in models:
+            if source[name] != name:
+                print("%s built from %s (upright)" % (name, source[name]))
+        dffs = {name: pack.dff(source[name]) for name in models}
         wanted = {(m["texture"] or "").lower() for path in dffs.values() for g in rwdff.parse_dff(path)[1] for m in g.materials}
         txds = pack.txds()
         print("reading %d textures from the pack (%s)" % (len(wanted), ", ".join(os.path.basename(t) for t in txds)))
@@ -662,7 +762,7 @@ def main():
             if vd[:4] != b"ldm\0":
                 tc.fail("%s: no 'ldm' at sector 0x%x of GTA3PS2.IMG - another disc?" % (name, mpos))
             convert(name, dffs[name], textures, vd, mid, os.path.join(stream, "%d.ldm" % mid),
-                    os.path.join(stream, "%d.xet" % tid), a.tris, a.tex, hd=hd)
+                    os.path.join(stream, "%d.xet" % tid), a.tris, a.tex, hd=hd, vt=wc.read_img(iso, tpos, tsz))
         print("written to", stream)
         if a.hd:
             dump = a.hd_dump
