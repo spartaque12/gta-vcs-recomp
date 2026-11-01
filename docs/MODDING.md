@@ -95,7 +95,7 @@ What the table gives:
   off-screen (the "cinema screen"). The hook may use the immediate context; the renderer sets its state again (VR.asi
   calls `ClearState` after its copies). The exe's side: `src/modapi/mod_present.cpp`; the split in gs_hw.cpp
   (`gsHwSetSplitLayers` / `splitLayers` in `composeDisplay`).
-- **Model geometry** (appended to API 1 on 2026-10-31, check `VCS_MOD_API_HAS(api, set_lit_refiner)`; `MeshSmooth.asi`
+- **Model geometry** (appended to API 1 on 2026-10-31, check `VCS_MOD_API_HAS(api, set_lit_refiner)`; `WeaponHD.asi`
   uses it): `set_lit_refiner(fn, user)` - the render worker calls `fn` for every lit model batch the native draws take
   (`VcsLitBatch`: kind skinned / rigid / environment-mapped, the strip's VU data as ints, bone encoding, position
   scale / offset); a returned `VcsLitRefined` (vertices in the batch's units, a strip of indices, a content key) is drawn

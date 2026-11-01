@@ -1226,11 +1226,8 @@ the exe's `-ffp-contract=off`, docs/MODDING.md).
   under the 120 cap on a 240 Hz display in a window (no VRR in a window unless the driver allows it) is what judders - a
   missed 8.3 ms slot shows a frame for three refreshes instead of two.
 
-### 6m. Lit model batches as a mod sees them: mesh smoothing (2026-10-31, MeshSmooth.asi)
+### 6m. Lit model batches as a mod sees them (2026-10-31, the lit refiner API; WeaponHD.asi)
 
-Found adapting Zeneric's "Peds And Vehs Mesh Smoothed" (San Andreas: PN triangles + MLS / fairing for peds, OpenSubdiv
-Catmull-Clark / Loop for vehicles - the option names in its .asi and .ini; its cache files `PAVMSC1` are compressed per
-model and were not used).
 - **Not in guest memory**: the streaming heap has 0.1 - 0.4 MB free in play (the measurements above, "Measured headroom");
   one level of subdivision is 4x the triangles of every ped / vehicle model (~1.8 MB of models loaded), so smoothed
   meshes cannot live in the game's memory. Done on the host instead, where the native lit draws (6d, `vcs_hle_world.cpp`)
