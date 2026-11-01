@@ -6,6 +6,7 @@
 #include "ui/trainer_menu.h"
 
 #include "game/vcs_trainer.h"
+#include "modapi/mod_loader.h"
 #include "platform/platform.h"
 #include "runtime/ps2_control.h"
 #include "settings/settings.h"
@@ -530,6 +531,8 @@ namespace ui
         g_camChordWasDown = camChord;
         if (!settingsMenuOpen() && (pressedKey(settings::value("controls.freecam_key")) || camChordPressed))
             tr::setToggle(tr::FreeCamera, !tr::toggle(tr::FreeCamera));
+        // the DLL mods' hotkeys (modapi/mod_loader.h), the same way: a key, or Back + a gamepad button, outside the menus
+        vcs::modapi::pollHotkeys(!settingsMenuOpen() && !g_open);
         if (settingsMenuOpen()) // one menu at a time
         {
             if (g_open)

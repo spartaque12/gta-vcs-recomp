@@ -936,3 +936,33 @@ before writing it, and its whole save folder after a failed write, so any crash 
   works unchanged; newest 10 kept (a card is ~0.5-1 MB, stored). In vcs.exe, not the launcher: players start vcs.exe on
   its own too, and only the card layer knows when a change comes. Saving into an empty slot changes nothing old and
   makes none. `PS2X_MC_BACKUP=0` turns it off.
+
+## 2026-11-01 - Mods as DLLs (.asi): a loader and a C API (docs/MODDING.md)
+
+Players and modders asked for mods that do not need a rebuilt vcs.exe. vcs.exe now loads `build\scripts\*.asi` (and
+`*.asi` beside it; `*.so` on Linux) through a C API, like an ASI loader for the PC GTAs. The API grew in the fork
+spartaque12/gta-vcs-recomp, where first person, free aim, distant lights and ragdolls moved out of the exe into DLLs
+(spartaque12/VCS-mods); this is its base part.
+- **A C ABI, not C++**: a versioned table of function pointers (`src/modapi/vcs_mod_api.h`), strings and C callbacks
+  with a user pointer; std::function, std::string and the settings / control types stay on each side. A mod built once
+  keeps working with later exes of the same API version; a mod for another version is refused with a log line, never
+  half-loaded. New functions are appended without a version change, and the table's `size` tells a mod which it has
+  (`VCS_MOD_API_HAS`).
+- **The guest context through offsets**: the API hands over where the GPRs, pc and FPU registers are in the runtime's
+  R5900Context instead of the runtime headers, so a mod needs no part of the port's source to build and survives
+  runtime changes that move other fields.
+- **Same compiler, same Dear ImGui**: hooks share the guest calling convention (clang's preserve_none), so mods are
+  built with clang-cl / clang; a mod draws into the exe's ImGui context with the exe's allocator, so it builds the same
+  ImGui and checks the version and structure sizes the API reports.
+- **Two hook phases**: `VcsModInstall` after the free camera's hooks and before free aim's, `VcsModInstallLate` after
+  free aim's, so a mod can choose whether its hooks wrap vcs.exe's own or are wrapped by them.
+- **The exe keeps the coupling points**: settings rows, hotkey rows and Back + button chords, the mouse / right-stick
+  look and the background draw list are API services, so everything a mod adds is gone with the DLL and back with it.
+  While a mod is absent its lines stay in vcs.ini untouched.
+- **Vanilla without mods**: every call site does nothing when no mod is loaded (no rows, no hooks, the look and free
+  aim as before); `VCS_MODS=0` loads none for one run (the reference).
+- **The base API first**: the fork's render hooks, motion vectors, shadow maps, lit-model refiner, present hooks and VR
+  pacing are not part of this change; the table ends before them (`size`), so a mod that needs them sees
+  `VCS_MOD_API_HAS` false and stays out, and they can be appended later at the same offsets.
+- What would change it: a mod that needs C++ across the boundary (it would get a C wrapper), or a field that has to
+  change meaning (`VCS_MOD_API_VERSION` 2; the loader keeps refusing older mods with a clear line).

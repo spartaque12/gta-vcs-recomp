@@ -19,6 +19,7 @@ detailed knowledge lives in `docs/`:
 | [docs/TRAINER.md](docs/TRAINER.md) | The trainer (F5): what it does, how (the game's script commands), its check |
 | [docs/LINUX.md](docs/LINUX.md) | The Linux build: packages, flags, the Vulkan backend, what differs from Windows, the work list |
 | [docs/LAUNCHER.md](docs/LAUNCHER.md) | The launcher and releases: what a release holds, the player's flow, the tools behind each button, the `@vcs` events, what was checked |
+| [docs/MODDING.md](docs/MODDING.md) | DLL mods (`.asi` in `build\scripts\`): the loader, the C API a mod gets (`src/modapi/vcs_mod_api.h`), how to build one |
 
 **When you learn something about the game, write it into docs/game-internals.md in the same change.**
 Record addresses and how you found them. When something is weird, use judgment, fix or work around it,
@@ -51,6 +52,7 @@ choices).
 | `third_party/PS2Recomp/ps2xRuntime` | The runtime (EE, VIF, VU1, GS HW backend, IOP host, stubs); our changes marked `[gta-recomp]` |
 | `game/vcs/` | Recompiler config, function map, VU1 upload list |
 | `tools/` | Python 3 tools (standard library only) - see below |
+| `src/modapi/` | The mod loader and its C API (docs/MODDING.md): `.asi` DLL mods from `build\scripts\`; nothing happens without one |
 | `launcher/` | `VCSLauncher.exe` / Linux `VCSLauncher` (a CMake project of its own, no third-party code: its own window - Win32, or X11 / Wayland -, renderer - D3D11 or Vulkan, one `ui.hlsl` -, DirectWrite / FreeType text, its own icons, animated UI, after uppies): disc, build tools, build, play - a front end over `tools/` (docs/LAUNCHER.md) |
 
 ## Build and run

@@ -26,6 +26,7 @@
 #include "game/vcs_hud.h"
 #include "game/vcs_rsl_native.h"
 #include "game/vcs_rsl_world.h"
+#include "modapi/mod_loader.h"
 #include "ps2_runtime.h"
 #include "ps2_runtime_macros.h"
 #include "runtime/ps2_perf.h"
@@ -897,7 +898,11 @@ namespace
         vcs::installDisplayHooks(runtime); // widescreen (settings menu)
         vcs::installHudHooks(runtime);     // 2D at the RenderWare level
         vcs::freecam::install(runtime);    // the trainer's free camera (game/vcs_freecam.h)
+        // the DLL mods' hooks (modapi/mod_loader.h): VcsModInstall chained after the free camera's, before free aim's
+        // (those wrap a mod's); VcsModInstallLate after them (a mod's wrap free aim's). No mod: nothing.
+        vcs::modapi::install(runtime);
         vcs::aim::install(runtime);        // free aim with the mouse / right stick (game/vcs_aim.h)
+        vcs::modapi::installLate(runtime);
         vcs::installFrameRateHooks(runtime); // 30 / 60 fps (game/vcs_framerate.h)
         vcs::installScriptTimingHooks(runtime); // per-frame mission meters on the time step (game/vcs_script_timing.h)
         vcs::installPhysicsTimingHooks(runtime); // per-frame vehicle pushes on the time step (game/vcs_physics_timing.h)

@@ -27,6 +27,7 @@
 #include "game/vcs_hud.h"
 #include "game/vcs_input.h"
 #include "game/vcs_volume.h"
+#include "modapi/mod_loader.h"
 #include "platform/platform.h"
 #include "render/presenter.h"
 #include "rhi/rhi.h"
@@ -604,6 +605,10 @@ namespace
         s.defaultValue = 0;
         settings::add(s);
 
+        // the mods built as DLLs (build\scripts\*.asi; modapi/mod_loader.h): loaded here, their VcsModRegister's rows
+        // here, on the Game page after "Window". No mod: nothing.
+        vcs::modapi::registerPlugins();
+
         s = {};
         s.key = "display.msaa";
         s.page = "Graphics";
@@ -652,6 +657,8 @@ namespace
         if (s.choices.size() > 1)
             settings::add(s);
 
+        // the DLL mods' rows for the "graphics" slot: after the renderer's, before the controls pages (modapi/mod_loader.h)
+        vcs::modapi::registerSlot("graphics");
         vcs::input::registerSettings(); // the Keyboard & mouse and Gamepad pages (game/vcs_input.h)
 
         s = {};
@@ -843,6 +850,7 @@ int main(int argc, char *argv[])
                                         altEnter();
                                         screenshotKey();
                                         followWindowAspect();
+                                        vcs::modapi::drawCallbacks(); // the DLL mods' (a crosshair): under the menus
                                         ui::drawSettingsMenu();
                                         ui::drawTrainerMenu();
                                         ps2control::setGameInputBlocked(ui::settingsMenuBlocksInput() || ui::trainerMenuBlocksInput());

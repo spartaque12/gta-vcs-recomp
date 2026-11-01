@@ -2,6 +2,8 @@
 // mouse camera and vibration - all turned into the one DualShock 2 the game reads.
 #pragma once
 
+#include <cstdint>
+
 class PS2Runtime;
 
 namespace vcs::input
@@ -36,4 +38,13 @@ namespace vcs::input
         bool fast = false, slow = false;
     };
     FreeCamInput takeFreeCameraInput();
+
+    // The last pad report the bindings made (any thread; the mod API's last_pad, modapi/vcs_mod_api.h): DualShock 2
+    // buttons held (1 = held), sticks -1..1 (y down +).
+    struct PadState
+    {
+        uint16_t buttons = 0;
+        float lx = 0, ly = 0, rx = 0, ry = 0;
+    };
+    PadState lastPad();
 }

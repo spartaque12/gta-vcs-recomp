@@ -8,6 +8,7 @@
 
 #include "game/vcs_aim.h"
 #include "game/vcs_freecam.h"
+#include "modapi/mod_loader.h"
 #include "platform/platform.h"
 #include "ps2_runtime.h"
 #include "runtime/ps2_audio_out.h"
@@ -112,6 +113,7 @@ namespace vcs::input
         bool scopeMode(uint32_t mode) { return mode == 7 || mode == 8 || mode == 34 || (mode >= 45 && mode <= 47); }
         bool zoomMode(uint32_t mode) { return mode == 7 || mode == 46 || mode == 47; }
         constexpr uint32_t kScopeZoom = 0x00487E2Cu; // the FOV a zooming scope eases toward
+        constexpr uint32_t kInvertLook = 0x00487A58u; // the game's own invert option: the right stick's y negated
         constexpr uint32_t kPad0 = 0x005147A8u;        // CPad 0: +0x96 DisablePlayerControls (s16)
         constexpr uint32_t kCamStickLocked = 0x00488EB4u; // the follow camera ignores the stick's turn while set
         constexpr uint32_t kCamTable = 0x00487B30u;    // the follow camera's tuning, outdoors (+0x3C indoors): +0x34 / +0x38
@@ -416,6 +418,9 @@ namespace vcs::input
             const auto now = std::chrono::steady_clock::now();
             const float dt = g_mouse.last.time_since_epoch().count() ? std::chrono::duration<float>(now - g_mouse.last).count() : 0.0f;
             const uint32_t frame = g_rdram ? rd32(kFrameCounter) : 0;
+            // a DLL mod's view (its look handler, modapi/mod_loader.h): the mouse and the right stick turn it, the
+            // game's camera gets no stick and free aim stands aside. No mod: never.
+            const bool modLook = !freeCamera && modapi::lookActive();
             if (freeCamera)
                 g_mouse = {};
             else if (frame != g_mouse.frame || dt >= 0.25f || dt == 0.0f)
@@ -446,7 +451,7 @@ namespace vcs::input
                 // Free aim is on, the gamepad's R1 when Gamepad > Free aim is; with the keyboard / mouse also a shot
                 // from the hip (Circle), held a moment after it so a burst stays one aim
                 g_mouse.aim = {};
-                if (m.freeAimMouse || m.freeAimPad || aim::aiming())
+                if (!modLook && (m.freeAimMouse || m.freeAimPad || aim::aiming()))
                 {
                     // the hold is for shots from the hip only: letting go of the target button ends the aim at once
                     if (keyR1 || g_mouse.aimHeld)
@@ -472,7 +477,13 @@ namespace vcs::input
                     g_mouse.aim = aim::update(in);
                 }
 
-                if (g_mouse.aim.camera)
+                if (modLook)
+                {
+                    // the right stick at full tilt turns 2.5 rad/s (the game's top speed); a stick pulled back looks up
+                    const float t = std::clamp(dt, 0.0f, 0.1f) * 2.5f, y = rd32(kInvertLook) ? -ry : ry;
+                    modapi::look((on ? -dx * m.mouseLook : 0.0f) - rx * t, (on ? up * m.mouseLook : 0.0f) + y * t);
+                }
+                else if (g_mouse.aim.camera)
                 {
                     // free aim turns the camera itself (aim::update)
                 }
@@ -585,6 +596,8 @@ namespace vcs::input
             }
             rx += g_mouse.x;
             ry += g_mouse.y;
+            if (modLook)
+                rx = ry = 0.0f;
             buttons |= g_mouse.wheelButton;
             if (g_mouse.aim.own)
             {
@@ -834,6 +847,9 @@ namespace vcs::input
         s.defaultValue = KEY_F8;
         settings::add(s);
 
+        // the DLL mods' hotkeys (modapi/mod_loader.h), after the menu keys
+        modapi::registerHotkeySettings(kKeys.c_str());
+
         // ---- Gamepad ---------------------------------------------------------------------------------------------
         for (const Control &c : kControls)
         {
@@ -1028,6 +1044,19 @@ namespace vcs::input
     }
 
     void stopVibration() { gamepadRumble(0.0f, 0.0f); }
+
+    PadState lastPad()
+    {
+        const uint64_t r = g_lastReport.load(std::memory_order_relaxed);
+        auto axis = [](uint64_t b) { return (static_cast<float>(b & 0xFF) - 128.0f) / 127.0f; };
+        PadState p;
+        p.buttons = static_cast<uint16_t>(~r & 0xFFFF);
+        p.rx = axis(r >> 16);
+        p.ry = axis(r >> 24);
+        p.lx = axis(r >> 32);
+        p.ly = axis(r >> 40);
+        return p;
+    }
 
     FreeCamInput takeFreeCameraInput()
     {
