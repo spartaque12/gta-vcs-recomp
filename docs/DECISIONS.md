@@ -1194,6 +1194,14 @@ from the plan below:
   times the strength setting; the field drifts at 0.6 + 1.2 x wind m/s in a slowly turning direction, on the game's
   clock (still while paused).
 
+- **Vegetation.asi** (the user, 2026-11-02: "let vegetation mod be asi"): the settings, the per-frame field (the game's
+  wind and clock, chained on the frame kick 0x2723E8 in InstallLate, before the port's own frame-boundary work) and
+  handing over mods\wind.txt moved to VCS-mods `plugins/Vegetation`; src/game/vcs_wind.* and the VCS_WIND_LIST lookup
+  in main.cpp are gone. The sway itself stays in vcs.exe as a renderer capability, as RenderHook's jitter does: the
+  shader, the per-draw wind constants and the wind list's texture lookup, reached through two appended API calls,
+  `render_set_wind` and `render_set_wind_list` (the list before the renderer starts: VcsModRegister). The models
+  stay data from tools/veg_convert.py (it needs the port's tools); the setting keys are unchanged, so vcs.ini keeps them.
+
 Plan for VCS (as researched; another session owns gs_hw.cpp):
 - **Data**: VCS's prelit vertex has no free channel (RGBA 5551 colour; the uv's z lane is the batch's STROW row), so
   the weight comes from the position: the converter's quantizer centres each model's box, so `h = (pos.z + 32768) /

@@ -9,6 +9,7 @@
 #include "../../third_party/stb/stb_image.h"
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <cctype>
 #include <condition_variable>
@@ -187,8 +188,26 @@ namespace render
         }
     };
 
+    namespace
+    {
+        std::string g_windList;            // setWindList (a mod's VcsModRegister: the main thread, before the renderer)
+        std::atomic<bool> g_started{false}; // a TextureReplacements was made: the list was read
+    }
+
+    bool setWindList(const char *path)
+    {
+        if (g_started.load() || !path || !*path)
+            return false;
+        std::ifstream in(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t *>(path))));
+        if (!in)
+            return false;
+        g_windList = path;
+        return true;
+    }
+
     TextureReplacements::TextureReplacements() : m(std::make_unique<Impl>())
     {
+        g_started = true;
         if (const char *dump = std::getenv("VCS_TEXTURE_DUMP"); dump && *dump)
         {
             m->dumpDir = std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t *>(dump)));
@@ -196,7 +215,8 @@ namespace render
             std::filesystem::create_directories(m->dumpDir, ec);
             std::fprintf(stderr, "[textures] dumping hashed textures to %s\n", m->dumpDir.string().c_str());
         }
-        if (const char *list = std::getenv("VCS_WIND_LIST"); list && *list)
+        const char *env = std::getenv("VCS_WIND_LIST");
+        if (const char *list = env && *env ? env : g_windList.empty() ? nullptr : g_windList.c_str())
         {
             std::ifstream in(std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t *>(list))));
             std::string line;

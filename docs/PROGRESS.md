@@ -903,8 +903,8 @@ Python scripts still usable on their own. docs/LAUNCHER.md has the whole of it; 
 | `VCS_TEXTURE_REPLACEMENTS=0|1`, `VCS_TEXTURE_PACK=DIR` | optional PCSX2 PNG pack; path to SLUS-21590 or its replacements directory (`graphics.texture_replacements`, `graphics.texture_pack` in vcs.ini) |
 | `VCS_TEXTURE_CACHE_MB=64..4096`, `VCS_TEXTURE_TRACE=1` | replacement GPU cache budget (512 MiB default; active textures protected for two frames); log computed PCSX2 identities |
 | `PS2X_HW_DUALPASS_LOG=1` | alpha dual pass: how many eligible draws take the second pass (textures with partly transparent texels) and how many keep one |
-| `VCS_WIND=0/1`, `VCS_WIND_STRENGTH=N` | Graphics > Vegetation wind (off by default) and its strength in % (game/vcs_wind.h) |
-| `VCS_WIND_LIST=FILE` | the wind list (default: mods/wind.txt beside vcs.exe, or under `VCS_MODS_DIR`; `tools/veg_convert.py --hd` writes it): textures whose native world draws sway |
+| `VCS_WIND=0/1`, `VCS_WIND_STRENGTH=N` | Graphics > Vegetation wind (off by default) and its strength in % - Vegetation.asi's (VCS-mods), since 2026-11-02 |
+| `VCS_WIND_LIST=FILE` | the wind list (Vegetation.asi hands mods/wind.txt beside vcs.exe, or under `VCS_MODS_DIR`, to the renderer; this overrides it; `tools/veg_convert.py --hd` writes it): textures whose native world draws sway |
 | `VCS_TEXTURE_DUMP=DIR` | every texture the renderer hashes written once as DIR/<PCSX2 name>.png (GS alpha); all shapes hashed, so slower - names for a pack (`tools/veg_convert.py --hd`) |
 | `PS2X_HW_GATHER=0` / `verify` | bilinear game textures through four loads with the wrap per tap (before 2026-10-30) / both paths, a pixel whose texels differ drawn magenta |
 | `PS2X_GPU_TIMING=1` | GPU time per frame by marker (D3D11 timestamp queries; a marker per draw, named by kind, target and texture), every 5 s |

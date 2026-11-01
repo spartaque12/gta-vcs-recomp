@@ -26,7 +26,6 @@
 #include "game/vcs_hud.h"
 #include "game/vcs_input.h"
 #include "game/vcs_volume.h"
-#include "game/vcs_wind.h"
 #include "modapi/mod_loader.h"
 #include "platform/platform.h"
 #include "render/presenter.h"
@@ -610,7 +609,6 @@ namespace
         s.env = "PS2X_HW_ALPHA_DUALPASS";
         s.onChange = [](int v) { gsHwSetAlphaDualPass(v != 0); };
         settings::add(s);
-        vcs::wind::registerSettings(); // vegetation wind sway (game/vcs_wind.h)
 
         s = {};
         s.key = "graphics.texture_replacements";
@@ -801,18 +799,6 @@ int main(int argc, char *argv[])
             {
                 const auto utf8 = path.u8string();
                 setEnv("VCS_TEXTURE_PACK", std::string(utf8.begin(), utf8.end()));
-            }
-        }
-        // The vegetation's wind list (tools/veg_convert.py writes it beside the converted models: game/vcs_wind.h)
-        if (const char *list = std::getenv("VCS_WIND_LIST"); !list || !*list)
-        {
-            const char *mods = std::getenv("VCS_MODS_DIR");
-            const fs::path path = (mods && *mods ? fs::u8path(mods) : exeDirectory() / "mods") / "wind.txt";
-            std::error_code ec;
-            if (fs::is_regular_file(path, ec))
-            {
-                const auto utf8 = path.u8string();
-                setEnv("VCS_WIND_LIST", std::string(utf8.begin(), utf8.end()));
             }
         }
         restoreWindowPlacement();

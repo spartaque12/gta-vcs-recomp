@@ -102,6 +102,7 @@ What the table gives:
   calls `ClearState` after its copies). The exe's side: `src/modapi/mod_present.cpp`; the split in gs_hw.cpp
   (`gsHwSetSplitLayers` / `splitLayers` in `composeDisplay`).
   VR pacing and size (appended 2026-11-01, `VCS_MOD_API_HAS(api, render_set_output_size)`): `vr_set_pacing(hz)` - the game at a headset's rate (frame-rate independent timing), the window's limiter and vsync aside, 0 = the settings again; `render_set_output_size(w, h)` - the picture's output size in place of the window's (0 x 0 = the window's).
+  Vegetation wind (appended 2026-11-02, `VCS_MOD_API_HAS(api, render_set_wind_list)`): `render_set_wind_list(path)` - the wind list (`tools/veg_convert.py --hd` writes it), VcsModRegister only (the renderer reads it when it starts); `render_set_wind(x, y, strength)` - the noise field's position and strength in metres (0 = still) the native world shader sways those textures' leaves with (Vegetation.asi).
 - **Model geometry** (appended to API 1 on 2026-10-31, check `VCS_MOD_API_HAS(api, set_lit_refiner)`; `WeaponHD.asi`
   uses it): `set_lit_refiner(fn, user)` - the render worker calls `fn` for every lit model batch the native draws take
   (`VcsLitBatch`: kind skinned / rigid / environment-mapped, the strip's VU data as ints, bone encoding, position

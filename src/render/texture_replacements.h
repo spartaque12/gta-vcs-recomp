@@ -24,6 +24,10 @@ namespace render
         float footZ = 0.0f, invHeight = 0.0f;
     };
 
+    // The wind list's path (VcsModApi::render_set_wind_list): before the renderer starts, which reads it then (else the
+    // environment's VCS_WIND_LIST). false once it has started, or when the file cannot be opened.
+    bool setWindList(const char *path);
+
     class TextureReplacements
     {
     public:
@@ -38,7 +42,7 @@ namespace render
         // 128 = opaque) - the names a pack's images need (tools/veg_convert.py --hd). Every shape is a candidate then.
         bool dumping() const;
         void dump(uint64_t pixels, uint64_t palette, uint32_t bits, uint32_t width, uint32_t height, const uint32_t *rgba);
-        // VCS_WIND_LIST=<file> (tools/veg_convert.py writes mods/wind.txt): lines "<PCSX2 name> mx my mz 0 reach",
+        // setWindList / VCS_WIND_LIST=<file> (tools/veg_convert.py writes mods/wind.txt): lines "<PCSX2 name> mx my mz 0 reach",
         // the textures whose draws sway in the wind - with or without replacements. Its shapes are candidates.
         const WindModel *wind(uint64_t pixels, uint64_t palette, uint32_t bits) const;
         void request(uint32_t id);

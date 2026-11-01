@@ -3,6 +3,7 @@
 #include "modapi/mod_render.h"
 
 #include "modapi/vcs_mod_api.h"
+#include "render/texture_replacements.h"
 #include "rhi/rhi.h"
 #include "runtime/gs/gs_hw.h"
 
@@ -384,6 +385,8 @@ namespace vcs::modapi::render
         a.render_push_marker = &apiPushMarker;
         a.render_pop_marker = &apiPopMarker;
         a.render_set_jitter = [](uint32_t phases) { gsHwSetJitter(phases); };
+        a.render_set_wind = [](float x, float y, float strength) { gsHwSetWind(x, y, strength); };
+        a.render_set_wind_list = [](const char *path) { return ::render::setWindList(path) ? 1 : 0; };
         a.render_current_color = &apiCurrentColor;
         a.render_native = &apiNative;
         a.render_create_texture_ex = &apiCreateTextureEx;

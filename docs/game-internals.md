@@ -2621,7 +2621,7 @@ Found with RAM dumps of a hidden run (the rig's `dump`) and the models read from
   (mods/wind.txt) has one set of numbers for every name; only the leaves' (cut-out) textures are in it (2026-11-01:
   8 of the 16 named textures), so the bark never moves. **CWeather::Wind is the float at `0x4CD2A4`** (read with the rig while forcing each weather
   type, FORCE_WEATHER_NOW): 0.25 sunny, 0.7 cloudy, 1.0 rain, 0 foggy and extra sunny (types 3, 4, 6, 7), 2.0
-  hurricane (5); it changes at once with the weather. game/vcs_wind.cpp drives the field from it and from
+  hurricane (5); it changes at once with the weather. Vegetation.asi (VCS-mods; game/vcs_wind.cpp until 2026-11-02) drives the field from it and from
   `m_snTimeInMilliseconds` (still while paused). Checked in a hidden run (Havana, the palmbig14 view): between two
   frames 0.4 s apart only the converted palms' crowns change (16k pixels at 1080p in the calm; 1.5k with the wind
   off - water, the clock); trunks stay joined to the crowns and the game's own bushes stay still. Leaves only
