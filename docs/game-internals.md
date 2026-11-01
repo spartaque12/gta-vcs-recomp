@@ -3004,6 +3004,29 @@ place in the view's frame) and screenshots.
   left / right and 0.375 up / down by the mouse, a 37-health ped 25 m out and 0.25 rad off killed by the sniper and the
   laser scope after aiming at it with the mouse, the rocket exploding at the reticle, and the view's direction kept when
   R1 is let go.
+- (2026-11-01, later: the viewmodel became the second choice of camera.fp_hold, the default holding the gun as in third
+  person - 12w. 2026-11-02: the viewmodel is the default again, reworked below.)
+- **The barrel on the dot, SA's arms** (the user's request, 2026-11-02: the old viewmodel back, its hands as in SA's
+  first person, its gun following the crosshair). Side by side the old viewmodel's barrel line missed the dot (the M4's
+  by ~40 px above at 960x672): it aimed the hand's x axis at the view's line 2 m out (30 m before the SA hands), but the
+  bore sits 6 - 19 cm above the hand, and on screen a line only ends in the dot - the view's vanishing point - when it is
+  parallel to the view. **The converted SA models' bores are not along the hand's x either**: measured in the game with
+  a `vmbore left up` command (the bore's direction in the hand's frame, tangents) and an automatic check of each
+  screenshot (the gun's pixels nearest the dot, their principal axis, the dot's distance from it, solved by secant):
+  Colt45 (-0.070, 0.075), Python (-0.025, -0.074), Shotgun (-0.110, 0.130), SPAS-12 (-0.300, 0), stubby (0, 0.160),
+  Tec9 (-0.067, 0.155), Uzi (-0.110, 0.030), silenced Ingram (VCS's model; 0, 0.080), MP5 (-0.060, 0.035), M4 (-0.086,
+  0.050), Ruger (-0.064, 0.042), flamethrower (0, 0.65), M60 (VCS's; 0, 0.30), minigun (-0.060, 0.45) - most a few
+  degrees right and up (SA's anims point them; the DFFs' slices agree on the sideways part only roughly). The hand is
+  turned so the bore is parallel to the view, the gun's up kept: the whole pose lives in the view's frame, so one
+  calibration holds at every pitch, yaw and while turning. Sway now moves the gun's place only (its turn would take the
+  line off the dot) and the rest pose lowers it 4 cm and draws it 3 cm back without turning it (only the reload tips it).
+  The arms: the right hand at (0.17 right, 0.36 ahead, -0.22 up) of the eyes for pistols, SMGs and rifles, (0.30, 0.40,
+  -0.24) for the heavy guns; the right shoulder at (0.24, 0.05, -0.40), the left low under the gun at (0.04, 0.42,
+  -0.62) so the left forearm rises from the bottom of the picture to the handguard (SA's hold, 12w) and the right one
+  comes in from the lower right corner; the `viewmodel` status gives both elbows and the left hand in the view (`vmplace`
+  takes the shoulders too). The heavy guns are bulky and parallel to the view: they read mostly from behind. Checked
+  in hidden runs (build/vmx_exe, port 47757, a copy of the card, FOV 87): Colt45, Uzi, M4, Shotgun, SPAS-12, MP5, M60 at
+  rest, aimed, looking 0.4 rad up and down and turning - the barrel's line through the dot; camera.fp_hold 0 unchanged.
 - **At rest unless aiming** (the user's request, 2026-11-01): the hand 6 cm lower and 3 cm back and in, the barrel 0.3 rad
   down and 0.22 rad in, raised to the crosshair only while R1 / the right mouse button aims (free aim) or locked on -
   eased 200 ms up, 180 ms down (UltimateFP's ADS ease); attacking (state 0x10 / 0x11, or a shot's recoil) raises it in
@@ -3085,6 +3108,79 @@ the ELF (build/elf: by weapon at 0x4A9BB0, 48 entries; by piece at 0x4A9C70, 7),
   sphere around ped z + 0.65 - 0.8 (z + 0.62 at 4 m hit the shoulder / arm, piece 3, with the Uzi's lower eye).
   "Everyone" (an NPC's head shot on Vic) was not run.
 
+
+### 12w. The gun hold as in third person, the aim pose, SA's armed anims (CameraAim.asi, 2026-11-01)
+
+Found for the user's request (first person holds the gun exactly as third person, up only while aiming, with San
+Andreas' Immersive Weapons Pack anims; the reference was an SA video) with the rig on an exe copy (build/fpa_exe, port
+47741, a copy of the card) and RAM dumps.
+- **Which anims hold a two-handed gun**: the player with an M4 plays **IDLE_armed / WALK_armed / run_armed /
+  WALK_start_armed** (associations found by their hierarchy pointers in a RAM dump; pistols / SMGs use run_1armed and
+  the player's own). They are **resident** ped anims, not a streamed block: the anim slots 0..501 (of the slot array)
+  are loaded at boot, the streamed blocks' slots come after (a block record's +0x1C first slot is 697 and up). So the
+  streamed-file override (12g, 12i) cannot replace them. **CAnimManager = *(0x48F048)** (made by FUN_0046FE00 on first
+  use); its +0xC -> +0x1013C the slot array (0x28 each, 12i), +0x10140 the block records (0x30: name[16?], +0x14
+  loaded, +0x1C first slot, +0x20 count, +0x24 chunk). Each resident anim's keys are one contiguous run (tracks' keys
+  word-aligned, nothing between): IDLE_armed 548 bytes, WALK_armed 2710, run_armed 3538, WALK_start_armed 1016; 20
+  tracks each (0..5, 31..34, 21..24, 41..43, 51..53; no fingers).
+- **SA's stock ped.ifp has the same four names** (32 bones, 60 fps keys). Ported (CameraAim's saanims.cpp, converter
+  VCS-mods plugins/CameraAim/tools/sa_armed_anims.py): the upper body (bones 3, 4, 5, 21-24, 31-34) from SA, times as
+  fractions stretched to VCS's durations; VCS's root (its translation drives the speed), pelvis, spine (bone 2, the
+  legs' parent) and legs kept. Written in place in RAM (no room to grow): the finest thinning level that fits (checked:
+  IDLE 1.5 deg 508/548 bytes, WALK 0.8 deg 2630/2710, run 0.4 deg 2278/3538, WALK_start 1.5 deg 988/1016). Every ped
+  with such a gun gets them; off restores VCS's bytes. Not from SA mods (Better Animations was not used).
+- **VCS's aim pose is the fire anim held**: **CPed::SetPointGunAt = FUN_001D0198**(ped, target, a2): SetLookFlag,
+  SetPedState(0x16) (unless the player attacks with a shotgun), flags |= 8, for torso-aimed guns blends out three
+  anims (ids at 0x4A9B28: delta -15, flags |= 4), then the fire anim (0xD6; 0xD7 crouched with weapon flag 0x20000) by
+  **BlendAnimation = FUN_00215868**(ped, clump +0x50, group = weapon info +0x40, id, f12 delta 4.0; or FUN_00215928
+  without a blend), and on the association **+0x10 = 0, +0x24 (blend delta) = 8.0**. **PointGunAt = FUN_001D06A0**
+  (every frame in state 0x16): the association past 0.4 x loop start (info +0x44, crouched +0x50) is set to the loop
+  start (FUN_0018EB70 = SetCurrentTime) and its flag 1 (running) cleared - the gun held up; IK flag 4 by the info's
+  arm bit. **ClearPointGunAt = FUN_001D0820**: ClearAimFlag, state 0x16 / 0x10 -> 1, the fire anim's flags |= 4 (freed
+  when out) and delta -4. **GetAssociation = FUN_002159A8**(ped, clump, id). Association: +0x8 flags, +0x24 blend
+  delta, +0x28 current time. Poking state 0x16 alone raises nothing (the anim is what raises the gun).
+- **Free aim's raise**: while R1 aims a torso-aimed gun (weapon info byte 0 bit 0x80 clear; the arm-aimed Colt45 /
+  Tec9 / silenced Ingram come up through their IK already) standing, idle (state 1), not reloading: CameraAim calls
+  GetAssociation / BlendAnimation as SetPointGunAt does and PointGunAt every camera update (from its camera hook's
+  context, registers saved and put back), and blends it out as ClearPointGunAt on release; firing (state 0x10) is the
+  game's own attack on the same association. Checked: M4, Shotgun, Uzi raised to the shoulder in third person (as a
+  lock-on), back down on release; Colt45 untouched.
+- **First person "as in third person"** (camera.fp_hold 0; the default 2026-11-01 - 11-02, the viewmodel since, 12t): no bone moved while not aiming - the body's anim holds the
+  gun, out of the picture looking ahead, in the hands looking down (as the SA reference). Aiming, the viewmodel's raised
+  pose (12t: hand at the place per class, barrel on the dot) is eased in from the body's pose by the ADS share (200 ms
+  up, 180 down); camera.fp_aim_eye off shows the game's aim pose instead (the gun at the shoulder, mostly below the
+  picture). Hip fire stays the body's fire anim (shots still along the view: free aim's line hook). Checked M4,
+  Shotgun, Uzi, Colt45 idle / looking down / walk / run / aim / aim walking / released, first and third person;
+  camera.fp_hold 1 (the old viewmodel) and anims.sa_armed 0 (restored) unchanged.
+
+- **SA's hands on the gun** (camera.fp_sa_hands, the user's "he holds the mag instead of the barrel"): the old by-eye
+  fore-grip points sat 5 cm under the wrist line with the hand turned half a turn about the barrel - on the M4 the left
+  hand landed on the magazine. Now each gun takes SA's own hold, by forward kinematics of the Immersive Weapons Pack's
+  fire anims at the fire point (RIFLE_fire carries the arm bones' offsets: upper arm 0.188 / 0.202, forearm 0.262 /
+  0.271, hand 0.278 / 0.267 m; ANP3 quaternions used as they are, Hamilton x y z w, child = parent x local): the left
+  hand in the right hand's frame (x the barrel, z up) - RIFLE (0.300, 0.034, 0.060), newshot (0.334, 0.019, 0.012),
+  buddy (0.303, 0.045, 0.031), UZI (0.236, 0.051, 0.061), tecani 2 hands (0.033, 0.084, -0.005), colt45 2 hands (0.020,
+  0.113, -0.018), python (0.024, 0.057, 0.034) m - with its rotation, and the finger bones' (SA 35 / 25 -> VCS 11 / 16).
+  The pack's models keep SA's attachment to the hand, so the left hand lands on the handguard. Pistols are two-handed
+  in view now. The raised place was matched side by side with the user's SA shots: long guns (0.20, 0.20, -0.24) m with
+  the barrel converging 2 m out (angled in to the middle), SMGs (0.18, 0.26, -0.22) / 2 m, pistols (0.14, 0.36, -0.18) /
+  4 m, the left shoulder at (-0.02, 0, -0.45) of the eyes so the forearm rises from the bottom centre. The rig's
+  `vmplace right ahead up [converge sx sy sz]` tunes it live.
+- **Walking while aiming** (camera.aim_walk; aimwalk.cpp): free aim kept the player standing with the torso-aimed guns
+  only because of the aim raise's held fire anim - its association (+0x8 flags 0x18) blocks the move anims; **flag
+  0x20** lets them move him (found by poking each bit while walking). VC PC's mouse-aim control is still in VCS:
+  CPlayerPed::ProcessControl (FUN_00230640) picks, per frame, the scope control (state 0xC: FUN_00233FF0 sniper rifles,
+  FUN_00233C80 rocket), CCamera::Using1stPersonWeaponMode (FUN_0037C568), **CCam::Using3rdPersonMouseCam (FUN_002A2E30,
+  needs 0x488EB4 - never set)** -> the "1st person run-around" FUN_002339D0 (heading = the camera's, the stick
+  strafes), fighting FUN_00233728, else PlayerControlZelda FUN_00232DE8; FUN_001F1D38 (the move anims) asks the mouse
+  camera too (ra 0x1F21F4) for the walk / run left, right, back anims. Answering it true for the player while aiming
+  freely gives strafing; the walk anims still bend the upper body, so the aim pose (bones 3 - 16, in the ped's frame) is
+  noted standing still with the stick at rest and put back on the walking body each draw (pivot the spine joint, turned
+  by the aim pitch since). The scopes: the run-around is called after FUN_00233FF0 / FUN_00233C80. Also found:
+  FUN_0023A538 (aiming keeps him standing: weapon info bit 0x80 clear and a lock-on target or +0xCC8 bit (0x8000 << 36)),
+  FUN_001F1698 = CanAimWithArm (weapon info byte 0 >> 7). Checked: M4, M60, Shotgun, Uzi, Colt45 move 2 - 3.5 m in 0.8 s
+  forward / sideways / back facing the aim with the gun at the shoulder; sniper rifle and rocket launcher walk under the
+  scope; firing while strafing (12 rounds), first person too; the setting off keeps the game's rule (0 m).
 
 ### 12x. What is in the water - boats, swimmers, splashes (RenderHook.asi wakes, 2026-11-01)
 

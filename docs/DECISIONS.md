@@ -1403,3 +1403,17 @@ launcher, Python, the libraries; the player's PC recompiles the game from their 
 "A release"), and vcs.exe contains the recompiled game code. So `dist\VCS-VR-friend` holds the mods (VR.asi,
 openxr_loader.dll, CameraAim / Project2DFX / RenderHook .asi), the fork's vcs-mods source as a zip and
 README_VR.txt: the friend overlays the source on their v0.0.1 folder, builds with the launcher and copies the scripts.
+
+## 2026-11-02 - First person's gun: the viewmodel again, its barrel parallel to the view (the user's request)
+
+The user compared the old viewmodel, the third-person hold (camera.fp_hold's default since 2026-11-01) and SA's
+first-person mod, and asked for the viewmodel back with SA's arms and a gun that follows the crosshair. Choices:
+- **camera.fp_hold defaults to the viewmodel (1)**; the third-person hold stays a choice (0). The numbers are kept, so a
+  vcs.ini that chose one keeps it; one without the key gets the viewmodel.
+- **The barrel parallel to the view, not converging on a point**: only a line parallel to the view ends in the dot on
+  screen whatever its offset from the eye, and the bore's height over the hand stops mattering. The earlier 2 m / 30 m
+  convergence aimed the hand's axis, so the drawn barrel ran past the dot.
+- **Each model's bore measured in the game** (`vmbore`, screenshots solved automatically) rather than from the DFFs:
+  the mesh fits disagreed with each other, the screenshots are what the player sees. The table is per weapon type in
+  viewmodel.cpp; a new gun model needs its own row.
+- Sway and the rest pose no longer turn the gun (the line would leave the dot); only reloading tips it.
