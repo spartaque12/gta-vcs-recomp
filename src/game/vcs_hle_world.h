@@ -22,6 +22,8 @@ namespace vcs::hleworld
     void setMeshHint(const WorldMesh *hint);
 
     // The mod API's lit-model refiner (VcsModApi::set_lit_refiner, modapi/vcs_mod_api.h): a mod's replacement geometry
-    // for lit model batches (MeshSmooth.asi). fn: VcsLitRefineFn; nullptr removes it.
+    // for lit model batches. fn: VcsLitRefineFn; nullptr removes it.
     void setLitRefiner(const void *fn, void *user);
+    // another refiner, asked before the one set (VcsModApi::add_lit_refiner); false when 8 are added already
+    bool addLitRefiner(const void *fn, void *user);
 }

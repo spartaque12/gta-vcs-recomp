@@ -57,48 +57,42 @@ WEAPONS = {
 _A, _M, _T, _I = "I - Base/Animated Weapons/", "I - Base/Melee Weapons/", "I - Base/Misc Weapons/", \
     "II - Pickups and Misc (Ezekiel)/Gameplay  weapons - items/"
 _G = (0.06, 0.0, 0.025)  # SA's grip -> VCS's: the median of the guns fitted at the grip (game-internals.md 12g)
+# the baked atlas: a texel count (4-bit: 16 KB for 32768), its shape chosen for the most texels per metre. The budgets
+# keep a full inventory (chainsaw, grenade, Python, SPAS, MP5, M4, sniper, minigun, camera: ~0.5 MB) inside the
+# streaming heap next to the 80's VC True Vegetation port (game-internals.md 12g: 0.6 MB is at the edge, 0.8 MB thrashes)
+_T32, _T16 = 32768, 16384
 PACK = {
-    1: (_I + "brassknuckle.dff", _I + "brassknuckle.txd", dict(tris=600, offset=(0.040, 0.009, 0.012), atlas=(128, 64))),
-    3: (_M + "Golfclub/golfclub.dff", _M + "Golfclub/golfclub.txd", dict(tris=700, rotate="y:21.4", offset=(0.001, 0, -0.046))),
-    4: (_M + "Nitestick/nitestick.dff", _M + "Nitestick/nitestick.txd", dict(tris=500, rotate="y:-3", offset=(0.032, 0, 0.144),
-                                                                          atlas=(128, 64))),
-    5: (_M + "Knifecur/knifecur.dff", _M + "Knifecur/knifecur.txd", dict(tris=700, rotate="y:11.6", offset=(0.040, 0, 0.046))),
-    6: (_M + "Bat/bat.dff", _M + "Bat/bat.txd", dict(tris=600, rotate="y:18.4", offset=(0.050, 0, 0.109))),
-    10: (_M + "Katana/katana.dff", _M + "Katana/katana.txd", dict(tris=900, rotate="y:18.4", offset=(0.048, 0, 0.064))),
-    11: (_M + "Chnsaw/chnsaw.dff", _M + "Chnsaw/chnsaw.txd", dict(tris=1500, rotate="y:9.8", offset=(0.022, 0, 0.075),
-                                                                  atlas=(256, 128))),
-    12: (_T + "Grenade/grenade.dff", _T + "Grenade/grenade.txd", dict(tris=600, rotate="y:-30.6", offset=(0.068, 0, 0.003),
-                                                                      atlas=(128, 64))),
-    16: (_T + "Tear Gas/teargas.dff", _T + "Tear Gas/teargas.txd", dict(tris=600, rotate="y:2.1", offset=(0.054, 0, 0.020),
-                                                                        atlas=(128, 64))),
-    17: (_T + "Molotov/molotov.dff", _T + "Molotov/molotov.txd", dict(tris=500, rotate="y:6.8", offset=(0.072, 0, 0.154),
-                                                                      atlas=(128, 64))),
-    18: (_I + "missile.dff", _I + "missile.txd", dict(tris=600, rotate="z:180", offset=(-0.003, -0.026, -0.002), atlas=(128, 64))),
-    19: (_A + "Colt45/colt45.dff", _A + "Colt45/colt45.txd", dict(tris=1300, prefix="c45_", offset=(0.059, 0, 0.021), atlas=(256, 128))),
-    20: (_A + "Desert Eagle/desert_eagle.dff", _A + "Desert Eagle/desert_eagle.txd", dict(tris=1300, prefix="deg_", offset=_G, atlas=(256, 128))),
-    21: (_A + "Chromegun/chromegun.dff", _A + "Chromegun/chromegun.txd", dict(tris=1500, prefix="chg_", offset=(0.088, 0, 0.009),
-                                                                              atlas=(256, 128))),
-    22: (_A + "Shotgspa/shotgspa.dff", _A + "Shotgspa/shotgspa.txd", dict(tris=1500, prefix="spa_", offset=_G, atlas=(256, 128))),
-    23: (_A + "Sawned Off/sawnoff.dff", _A + "Sawned Off/sawnoff.txd", dict(tris=1300, prefix="saw_", offset=(0.109, 0, 0.034),
-                                                                          atlas=(256, 128))),
-    24: (_A + "Tec9/tec9.dff", _A + "Tec9/tec9.txd", dict(tris=1300, prefix="tec_", offset=(0.064, 0, 0.043), atlas=(256, 128))),
-    25: (_A + "Micro Uzi/micro_uzi.dff", _A + "Micro Uzi/micro_uzi.txd", dict(tris=1300, prefix="uzi_", offset=(0.043, 0, 0.029), atlas=(256, 128))),
-    27: (_A + "MP5/mp5lng.dff", _A + "MP5/mp5lng.txd", dict(tris=1500, prefix="mp5_", offset=(0.044, 0, 0.024), atlas=(256, 128))),
-    28: (_A + "M4/m4.dff", _A + "M4/m4.txd", dict(tris=1700, prefix="m4_", offset=(0.022, 0, -0.017), atlas=(256, 128))),
-    29: (_A + "AK-47/ak47.dff", _A + "AK-47/ak47.txd", dict(tris=1700, prefix="ak_", offset=(0.065, 0, 0.025), atlas=(256, 128))),
-    30: (_A + "Sniper/sniper.dff", _A + "Sniper/sniper.txd", dict(tris=1700, prefix="snp_", offset=(0.030, 0, 0.030),
-                                                                  atlas=(256, 128))),
-    32: (_A + "Rocket Launcher/rocketla.dff", _A + "Rocket Launcher/rocketla.txd", dict(tris=1400, prefix="rpg_", offset=_G,
-                                                                                      atlas=(256, 128))),
-    33: (_I + "flame.dff", _I + "flame.txd", dict(tris=1400, rotate="y:19.5", offset=(0.066, 0, 0.137), atlas=(256, 128))),
-    35: (_I + "minigun.dff", _I + "minigun.txd", dict(tris=1400, keep="minigun", rotate="y:30.2", offset=(0.040, 0, 0.183),
-                                                      atlas=(256, 128))),
+    1: (_I + "brassknuckle.dff", _I + "brassknuckle.txd", dict(tris=400, atlas=_T16, offset=(0.040, 0.009, 0.012))),
+    3: (_M + "Golfclub/golfclub.dff", _M + "Golfclub/golfclub.txd", dict(tris=400, atlas=_T16, rotate="y:21.4", offset=(0.001, 0, -0.046))),
+    4: (_M + "Nitestick/nitestick.dff", _M + "Nitestick/nitestick.txd", dict(tris=400, atlas=_T16, rotate="y:-3", offset=(0.032, 0, 0.144))),
+    5: (_M + "Knifecur/knifecur.dff", _M + "Knifecur/knifecur.txd", dict(tris=400, atlas=_T16, rotate="y:11.6", offset=(0.040, 0, 0.046))),
+    6: (_M + "Bat/bat.dff", _M + "Bat/bat.txd", dict(tris=400, atlas=_T16, rotate="y:18.4", offset=(0.050, 0, 0.109))),
+    10: (_M + "Katana/katana.dff", _M + "Katana/katana.txd", dict(tris=400, atlas=_T16, rotate="y:18.4", offset=(0.048, 0, 0.064))),
+    11: (_M + "Chnsaw/chnsaw.dff", _M + "Chnsaw/chnsaw.txd", dict(tris=950, atlas=_T32, rotate="y:9.8", offset=(0.022, 0, 0.075))),
+    12: (_T + "Grenade/grenade.dff", _T + "Grenade/grenade.txd", dict(tris=400, atlas=_T16, rotate="y:-30.6", offset=(0.068, 0, 0.003))),
+    16: (_T + "Tear Gas/teargas.dff", _T + "Tear Gas/teargas.txd", dict(tris=400, atlas=_T16, rotate="y:2.1", offset=(0.054, 0, 0.020))),
+    17: (_T + "Molotov/molotov.dff", _T + "Molotov/molotov.txd", dict(tris=400, atlas=_T16, rotate="y:6.8", offset=(0.072, 0, 0.154))),
+    18: (_I + "missile.dff", _I + "missile.txd", dict(tris=400, atlas=_T16, rotate="z:180", offset=(-0.003, -0.026, -0.002))),
+    19: (_A + "Colt45/colt45.dff", _A + "Colt45/colt45.txd", dict(tris=1200, atlas=_T32, prefix="c45_", offset=(0.059, 0, 0.021))),
+    20: (_A + "Desert Eagle/desert_eagle.dff", _A + "Desert Eagle/desert_eagle.txd", dict(tris=1200, atlas=_T32, prefix="deg_", offset=_G)),
+    21: (_A + "Chromegun/chromegun.dff", _A + "Chromegun/chromegun.txd", dict(tris=1000, atlas=_T32, prefix="chg_", offset=(0.088, 0, 0.009))),
+    22: (_A + "Shotgspa/shotgspa.dff", _A + "Shotgspa/shotgspa.txd", dict(tris=1000, atlas=_T32, prefix="spa_", offset=_G)),
+    23: (_A + "Sawned Off/sawnoff.dff", _A + "Sawned Off/sawnoff.txd", dict(tris=1200, atlas=_T32, prefix="saw_", offset=(0.109, 0, 0.034))),
+    24: (_A + "Tec9/tec9.dff", _A + "Tec9/tec9.txd", dict(tris=1050, atlas=_T32, prefix="tec_", offset=(0.064, 0, 0.043))),
+    25: (_A + "Micro Uzi/micro_uzi.dff", _A + "Micro Uzi/micro_uzi.txd", dict(tris=1050, atlas=_T32, prefix="uzi_", offset=(0.043, 0, 0.029))),
+    27: (_A + "MP5/mp5lng.dff", _A + "MP5/mp5lng.txd", dict(tris=1050, atlas=_T32, prefix="mp5_", offset=(0.044, 0, 0.024))),
+    28: (_A + "M4/m4.dff", _A + "M4/m4.txd", dict(tris=1000, atlas=_T32, prefix="m4_", offset=(0.022, 0, -0.017))),
+    29: (_A + "AK-47/ak47.dff", _A + "AK-47/ak47.txd", dict(tris=1000, atlas=_T32, prefix="ak_", offset=(0.065, 0, 0.025))),
+    30: (_A + "Sniper/sniper.dff", _A + "Sniper/sniper.txd", dict(tris=1000, atlas=_T32, prefix="snp_", offset=(0.030, 0, 0.030))),
+    32: (_A + "Rocket Launcher/rocketla.dff", _A + "Rocket Launcher/rocketla.txd", dict(tris=1000, atlas=_T32, prefix="rpg_", offset=_G)),
+    33: (_I + "flame.dff", _I + "flame.txd", dict(tris=1000, atlas=_T32, rotate="y:19.5", offset=(0.066, 0, 0.137))),
+    35: (_I + "minigun.dff", _I + "minigun.txd", dict(tris=900, atlas=_T32, keep="minigun", rotate="y:30.2", offset=(0.040, 0, 0.183))),
     # the barrels spin about their own x axis at a place the game's code gives: in their own frame, the front end at
     # VCS's (its model: x -0.456 .. 0.017, the axis through the origin)
-    135: (_I + "minigun.dff", _I + "minigun.txd", dict(tris=500, keep="minigun2", prefix="iwp2_", local=True,
-                                                       offset=(-0.298, 0.005, 0.005), atlas=(128, 64))),
-    36: (_I + "bomb.dff", _I + "bomb.txd", dict(tris=600, rotate="z:42.8", offset=(0.085, -0.004, 0.038), atlas=(128, 64))),
-    38: (_I + "camera.dff", _I + "camera.txd", dict(tris=800, rotate="y:-12.6", offset=(0.044, 0, 0.011))),
+    135: (_I + "minigun.dff", _I + "minigun.txd", dict(tris=300, atlas=_T16, keep="minigun2", prefix="iwp2_", local=True,
+                                                       offset=(-0.298, 0.005, 0.005))),
+    36: (_I + "bomb.dff", _I + "bomb.txd", dict(tris=400, atlas=_T16, rotate="z:42.8", offset=(0.085, -0.004, 0.038))),
+    38: (_I + "camera.dff", _I + "camera.txd", dict(tris=400, atlas=_T16, rotate="y:-12.6", offset=(0.044, 0, 0.011))),
 }
 
 def read_img(iso_path, pos, sectors):
@@ -713,7 +707,166 @@ def components(T, npos):
         out[find(t[0])].append(i)
     return list(out.values())
 
-def convert_baked(parts, txd, vd, xd, model_id, out_mdl, out_xet, tris, prefix, atlas, crease, min_part, log):
+def simplify_parts(P, kept, tris, ext):
+    """Each separate piece simplified on its own, to its share of the budget (by its triangles) but never below a floor
+    that grows with its length: thin long pieces (a barrel, a sight rail) are cheap for the quadrics to flatten into a
+    line, which in one pass over the whole model they did (the M4's barrel went, its muzzle left floating). kept:
+    [(triangles, box diagonal)] -> (positions, triangles)"""
+    floors = [min(len(c), int(12 + 36 * d / ext) if d >= 0.05 * ext else 4) for c, d in kept]
+    if sum(floors) > tris // 2:  # many long pieces (the minigun's barrels): the floors take half the budget at most
+        k = tris / 2 / sum(floors)
+        floors = [min(len(c), max(4, int(f * k))) for (c, _), f in zip(kept, floors)]
+    spare = max(0, tris - sum(floors))
+    weight = sum(len(c) - f for (c, _), f in zip(kept, floors)) or 1
+    P2, T2 = [], []
+    for (c, _), f in zip(kept, floors):
+        target = min(len(c), f + int(spare * (len(c) - f) / weight))
+        local = {}
+        for t in c:
+            for v in t:
+                if v not in local:
+                    local[v] = len(local)
+        lp = [None] * len(local)
+        for v, i in local.items():
+            lp[i] = P[v]
+        lt = [[local[v] for v in t] for t in c]
+        if target < len(lt):
+            m = mesh_simplify.Mesh(lp, [(i, 0.0, 0.0, "") for i in range(len(lp))], lt, free_corners=True)
+            m.simplify(target)
+            lp, w2, t2 = m.compact()
+            lt = [[w2[w][0] for w in t] for t in t2]
+        base = len(P2)
+        P2 += lp
+        T2 += [[base + v for v in t] for t in lt]
+    return P2, T2
+
+def smooth_charts(charts, P, T, passes=4, min_dot=0.4):
+    """A simplified mesh is rough: neighbours that face nearly the same way fall into different box views, and every
+    such border splits the vertices (a strip ends there). A triangle takes the view most of its edge neighbours have
+    when that view still sees it at under ~66 degrees; the views' order (outermost first) is kept."""
+    import mesh_bake
+    lab = {}
+    for k, m in charts:
+        for i in m:
+            lab[i] = k
+    nrm = {}
+    edges = defaultdict(list)
+    for i in lab:
+        t = T[i]
+        nrm[i] = mesh_bake.unit(mesh_bake.cross(mesh_bake.sub(P[t[1]], P[t[0]]), mesh_bake.sub(P[t[2]], P[t[0]])))
+        for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+            edges[(a, b) if a < b else (b, a)].append(i)
+    nb = defaultdict(list)
+    for ts in edges.values():
+        for x in ts:
+            nb[x] += [y for y in ts if y != x]
+    for _ in range(passes):
+        changed = 0
+        new = dict(lab)
+        for i, k in lab.items():
+            votes = Counter(lab[j] for j in nb[i])
+            if not votes:
+                continue
+            k2, n = votes.most_common(1)[0]
+            if k2 != k and n * 2 > len(nb[i]) and mesh_bake.dot(nrm[i], mesh_bake.AXES[k2][0]) >= min_dot:
+                new[i] = k2
+                changed += 1
+        lab = new
+        if not changed:
+            break
+    views = defaultdict(list)
+    for i, k in lab.items():
+        c = [sum(P[v][a] for v in T[i]) / 3 for a in range(3)]
+        views[k].append((-mesh_bake.dot(c, mesh_bake.AXES[k][0]), i))
+    return [(k, [i for _, i in sorted(views[k])]) for k in sorted(views)]
+
+def mirror_sides(charts, P, T):
+    """The two sides of a gun (the box views along +y and -y) share their texels, the right side's (-y: x along the
+    barrel, z up) painted on both, mirrored: twice the texels on the sides that show most. Parts on one side only still
+    get their own (the bake fills only texels nobody painted)."""
+    by = dict(charts)
+    if 2 not in by or 3 not in by:
+        return charts
+    both = sorted(by[2] + by[3], key=lambda i: sum(P[v][1] for v in T[i]))  # the right side's surfaces first
+    return [(k, m) for k, m in charts if k not in (2, 3)] + [(3, both)]
+
+def pack_atlas(charts, P, T, atlas):
+    """atlas: (w, h), or a texel count - the shape (64 .. 512 wide) that gives the most texels per metre.
+    -> (w, h, texels per metre, placements)"""
+    import mesh_bake
+    if isinstance(atlas, int):
+        best = None
+        for w in (64, 128, 256, 512):
+            h = atlas // w
+            if not 32 <= h <= 512:
+                continue
+            try:
+                s, place = mesh_bake.pack(charts, P, T, w, h)
+            except ValueError:
+                continue
+            if best is None or s > best[2]:
+                best = (w, h, s, place)
+        return best
+    s, place = mesh_bake.pack(charts, P, T, atlas[0], atlas[1])
+    return atlas[0], atlas[1], s, place
+
+def kmeans_palette(rgba, n, iters=12):
+    """n colours for the pixels (median cut to start, then k-means over the distinct colours, weighted by count)"""
+    pal0, _ = quantize(rgba, n)
+    cnt = Counter(rgba[i:i + 3] for i in range(0, len(rgba), 4))
+    cols = list(cnt.items())
+    cent = [tuple(float(x) for x in c[:3]) for c in pal0[:n]]
+    for _ in range(iters):
+        acc = [[0.0, 0.0, 0.0, 0] for _ in cent]
+        for c, k in cols:
+            r, g, b = c[0], c[1], c[2]
+            j = min(range(len(cent)), key=lambda m: (r - cent[m][0]) ** 2 + (g - cent[m][1]) ** 2 + (b - cent[m][2]) ** 2)
+            a = acc[j]
+            a[0] += r * k; a[1] += g * k; a[2] += b * k; a[3] += k
+        cent = [(a[0] / a[3], a[1] / a[3], a[2] / a[3]) if a[3] else cent[i] for i, a in enumerate(acc)]
+    return [tuple(min(255, max(0, round(x))) for x in c) for c in cent]
+
+def t4_raster(w, h, rgba):
+    """4-bit (16 colours, as VCS's own weapon textures), opaque"""
+    pal = kmeans_palette(rgba, 16)
+    memo = {}
+    idx = bytearray(w * h)
+    for i in range(w * h):
+        c = rgba[i * 4:i * 4 + 3]
+        j = memo.get(c)
+        if j is None:
+            j = memo[c] = min(range(16), key=lambda m: (c[0] - pal[m][0]) ** 2 + (c[1] - pal[m][1]) ** 2 + (c[2] - pal[m][2]) ** 2)
+        idx[i] = j
+    data = bytearray(idx[i] | idx[i + 1] << 4 for i in range(0, w * h, 2))
+    for r, g, b in pal:
+        data += bytes((r, g, b, 0x80))
+    flags = int(math.log2(w)) | int(math.log2(h)) << 6 | 4 << 12 | 1 << 20
+    return {"w4": 0x00450000 | (w // 2), "flags": flags, "data": bytes(data)}
+
+def source_textures(txd, parts, s, log):
+    """The pack's textures, each at the mip level that gives about twice the atlas's texels per metre on its surfaces
+    (the bake's 3 x 3 samples a texel then average them; a finer level aliases into noise, a coarser one blurs)"""
+    uva, wa = Counter(), Counter()
+    for tex, ps, uvs in parts:
+        wa[tex] += tri_area(*ps)
+        (a, b), (c, d), (e, f) = uvs
+        uva[tex] += abs((c - a) * (f - b) - (e - a) * (d - b)) / 2
+    out = {}
+    for tex in wa:
+        if not wa[tex] or not uva[tex]:
+            continue
+        d1 = math.sqrt(uva[tex] / wa[tex])  # texels per metre for a 1-texel texture
+        want = 64
+        while want < 1024 and want * d1 < 2 * s:
+            want *= 2
+        got = rwtxd.read_txd(txd, want, only={tex})
+        out.update(got)
+        if tex in got:
+            log("  source %-16s %4dx%-4d (%.0f texels per metre)" % (tex, got[tex][0], got[tex][1], got[tex][0] * d1))
+    return out
+
+def convert_baked(parts, txd, vd, xd, model_id, out_mdl, out_xet, tris, prefix, atlas, crease, min_part, log,
+                  bits=4, mirror=True, fullres=1, out_png=None, hd_out=None):
     """the simplified mesh with an atlas of its own, the detailed model's textures baked onto it (tools/mesh_bake.py)"""
     import mesh_bake
     pidx, P, T, seen = {}, [], [], set()
@@ -735,29 +888,74 @@ def convert_baked(parts, txd, vd, xd, model_id, out_mdl, out_xet, tris, prefix, 
     if backs:
         log("  %d back faces of double-sided surfaces left out" % backs)
     # small separate pieces (screws, pins) only in the texture: the bake paints them where they sat
-    keepT, dropped = [], 0
+    kept, dropped = [], 0
     for comp in components(T, len(P)):
         ps = [P[v] for i in comp for v in T[i]]
         diag = math.dist([min(p[k] for p in ps) for k in range(3)], [max(p[k] for p in ps) for k in range(3)])
         if diag < min_part * ext:
             dropped += len(comp)
         else:
-            keepT += [T[i] for i in comp]
+            kept.append(([T[i] for i in comp], diag))
     log("  welded: %d positions, %d triangles (%d in small pieces, left to the texture)" % (len(P), len(T), dropped))
-    T = keepT
+    T = [t for c, _ in kept for t in c]
     if tris and len(T) > tris:
-        m = mesh_simplify.Mesh(P, [(i, 0.0, 0.0, "") for i in range(len(P))], T, free_corners=True)
-        m.simplify(tris)
-        P2, W2, T = m.compact()
-        P = P2
-        T = [[W2[w][0] for w in t] for t in T]
-        log("  simplified to %d triangles (budget %d)" % (len(T), tris))
-    charts = mesh_bake.make_charts(P, T)
-    aw, ah = atlas
-    s, place = mesh_bake.pack(charts, P, T, aw, ah)
-    log("  %d charts in a %dx%d atlas, %.0f texels per metre" % (len(charts), aw, ah, s))
-    textures = rwtxd.read_txd(txd, 512)
-    rgba, _ = mesh_bake.bake(P, T, charts, place, s, aw, ah, parts, textures, reach=0.012 * ext, log=log)
+        P, T = simplify_parts(P, kept, tris, ext)
+        log("  simplified to %d triangles (budget %d) in %d pieces" % (len(T), tris, len(kept)))
+    charts = smooth_charts(mesh_bake.make_charts(P, T), P, T)
+    if mirror:
+        charts = mirror_sides(charts, P, T)
+    if hd_out:
+        # the atlas laid out and painted from the pack's full mesh (tools/weapon_hd.py): the small mesh and the full
+        # one (WeaponHD.asi) share it
+        import weapon_hd
+        hparts = weapon_hd.clean_parts(parts, log)
+        HP, HT, hcharts, hviews = weapon_hd.high_charts(hparts)
+        aw, ah, s, hplace = pack_atlas(hcharts, HP, HT, atlas)
+        place_of = {lab: hplace[i] for i, (lab, _) in enumerate(hcharts)}
+
+        def resolve(lab):
+            lab = weapon_hd.MIRROR.get(lab, lab)
+            if lab in place_of:
+                return lab
+            n = mesh_bake.AXES[lab][0]
+            return max(place_of, key=lambda k: mesh_bake.dot(n, mesh_bake.AXES[k][0]))
+        merged = defaultdict(list)
+        for lab, mem in charts:
+            merged[resolve(lab)] += mem
+        charts = sorted(merged.items())
+        place = [place_of[lab] for lab, _ in charts]
+        log("  %d views in a %dx%d atlas, %.0f texels per metre (laid out by the full mesh)" % (len(charts), aw, ah, s))
+        k = max(1, fullres)
+        textures = source_textures(txd, hparts, s * k / 2, log)
+        big, painted = weapon_hd.project_bake(hparts, hviews, {l: (x0 * k, y0 * k, r, u0, v0) for l, (x0, y0, r, u0, v0)
+                                                                in place_of.items()}, s * k, aw * k, ah * k, textures, 4 * k)
+        log("  painted from the full mesh: %d texels" % painted)
+        rgba = box_reduce(aw * k, ah * k, big, k) if k > 1 else big
+        if k == 1:
+            big = None
+    else:
+        aw, ah, s, place = pack_atlas(charts, P, T, atlas)
+        log("  %d charts in a %dx%d atlas, %.0f texels per metre" % (len(charts), aw, ah, s))
+    if hd_out:
+        pass
+    elif fullres > 1:
+        # the atlas baked at `fullres` times the size (one sample a texel, the pack's textures at that density): a
+        # PCSX2-named PNG for the texture replacements (docs/TEXTURE_PACKS.md), its box-filtered reduction in the game
+        k = fullres
+        textures = source_textures(txd, parts, s * k / 2, log)
+        placek = [(x0 * k, y0 * k, rot, u0, v0) for x0, y0, rot, u0, v0 in place]
+        keep = mesh_bake.SUBSAMPLES
+        mesh_bake.SUBSAMPLES = ((0.0, 0.0),)
+        try:
+            big, _ = mesh_bake.bake(P, T, charts, placek, s * k, aw * k, ah * k, parts, textures, reach=0.012 * ext,
+                                    log=log, grow=4 * k)
+        finally:
+            mesh_bake.SUBSAMPLES = keep
+        rgba = box_reduce(aw * k, ah * k, big, k)
+    else:
+        textures = source_textures(txd, parts, s, log)
+        rgba, _ = mesh_bake.bake(P, T, charts, place, s, aw, ah, parts, textures, reach=0.012 * ext, log=log)
+        big = None
     N = grouped_normals(P, T, crease)
     weldv, rep, tl = {}, [], []
     for cid, (label, members) in enumerate(charts):
@@ -781,23 +979,102 @@ def convert_baked(parts, txd, vd, xd, model_id, out_mdl, out_xet, tris, prefix, 
                                u32(vd, geo + 0x20 + 0x40 + 0x18))
     with open(out_mdl, "wb") as f:
         f.write(mdl)
-    r = t8_raster(aw, ah, rgba)
+    if hd_out:
+        # the small model's batches as build_mdl cut them (<= 70 strip vertices, 2 shared), their positions as the VU
+        # gets them, and the full mesh shared out over them
+        seq = [rep[i] for i in seq_idx]
+        qcentre, qscale, q = quantizer([v[0] for v in seq])
+        qs = [q(v[0]) for v in seq]
+        batches, start = [], 0
+        while start < len(seq) - 2:
+            batches.append((qs[start:start + 70], [v[0] for v in seq[start:start + 70]]))
+            start += 68
+        info = weapon_hd.write_hd(hd_out, model_id, batches, hparts, hviews, place_of, s, aw, ah, prm, crease,
+                                  quant=(qcentre, qscale))
+        log("  full mesh for WeaponHD.asi: %d triangles over %d batches, %d strip indices, %d KB -> %s" % (
+            info["triangles"], info["batches"], info["indices"], info["bytes"] // 1024, hd_out))
+    r = t4_raster(aw, ah, rgba) if bits == 4 else t8_raster(aw, ah, rgba)
     xet = build_xet(read_xet(xd) + [(name.encode("latin1"), r["w4"], r["flags"], r["data"])])
     with open(out_xet, "wb") as f:
         f.write(xet)
     log("  model: %d tris, %d strip verts, %d bytes (%d sectors); textures: %d bytes (%d sectors)" % (
         len(tl), total, len(mdl), (len(mdl) + 2047) // 2048, len(xet), (len(xet) + 2047) // 2048))
-    return {"tris": len(tl), "strip_verts": total, "mdl": len(mdl), "xet": len(xet), "rgba": rgba}
+    out = {"tris": len(tl), "strip_verts": total, "mdl": len(mdl), "xet": len(xet), "rgba": rgba}
+    if big is not None and out_png:
+        # GS alpha: 128 = opaque (PCSX2 packs keep it)
+        write_png(out_png, aw * fullres, ah * fullres, bytes(b if i % 4 != 3 else 128 for i, b in enumerate(big)))
+        out.update(png=out_png, texture=name, palette_hash="%x" % xxh3_64(r["data"][-64:] if bits == 4 else b""),
+                   shape="%x" % (0x14 | int(math.log2(aw)) << 6 | int(math.log2(ah)) << 10), size=(aw * fullres, ah * fullres))
+        log("  full-resolution texture %dx%d -> %s (palette hash %s)" % (aw * fullres, ah * fullres, out_png, out["palette_hash"]))
+    return out
+
+def box_reduce(w, h, rgba, k):
+    """w x h RGBA reduced k times by averaging k x k blocks"""
+    w2, h2 = w // k, h // k
+    out = bytearray(w2 * h2 * 4)
+    n = k * k
+    for y in range(h2):
+        for x in range(w2):
+            acc = [0, 0, 0, 0]
+            for j in range(k):
+                o = ((y * k + j) * w + x * k) * 4
+                for i in range(k):
+                    acc[0] += rgba[o]; acc[1] += rgba[o + 1]; acc[2] += rgba[o + 2]; acc[3] += rgba[o + 3]
+                    o += 4
+            q = (y * w2 + x) * 4
+            out[q:q + 4] = bytes(((acc[0] + n // 2) // n, (acc[1] + n // 2) // n, (acc[2] + n // 2) // n, (acc[3] + n // 2) // n))
+    return bytes(out)
+
+def write_png(path, w, h, rgba):
+    import zlib
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\0" + rgba[y * w * 4:(y + 1) * w * 4] for y in range(h))
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) +
+                chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+# XXH3-64 (seed 0) for 17 - 128 byte inputs: the texture replacements' palette identity is this hash over the CLUT
+# expanded to RGBA (a 16-colour CLUT: 64 bytes; render/texture_replacements.cpp, third_party/xxhash)
+_XXH_SECRET = bytes.fromhex(
+    "b8fe6c3923a44bbe7c01812cf721ad1cded46de9839097db7240a4a4b7b3671fcb79e64eccc0e578825ad07dccff7221b8084674f743248e"
+    "e03590e6813a264c3c2852bb91c300cb88d0658b1b532ea371644897a20df94e3819ef46a9deacd8a8fa763fe39c343ff9dcbbc7c70b4f1d"
+    "8a51e04bcdb45931c89f7ec9d9787364eac5ac8334d3ebc3c581a0fffa1363eb170ddd51b7f0da49d316552629d4689e2b16be587d47a1fc"
+    "8ff8b8d17ad031ce45cb3a8f95160428afd7fbcabb4b407e")
+
+def xxh3_64(data):
+    M = (1 << 64) - 1
+    n = len(data)
+    if not 17 <= n <= 128:
+        raise ValueError("xxh3_64 here covers 17 - 128 bytes")
+    def r64(b, o): return struct.unpack_from("<Q", b, o)[0]
+    def mix(i, si):
+        a = r64(data, i) ^ r64(_XXH_SECRET, si)
+        b = r64(data, i + 8) ^ r64(_XXH_SECRET, si + 8)
+        p = a * b
+        return (p & M) ^ (p >> 64)
+    acc = (n * 0x9E3779B185EBCA87) & M
+    if n > 32:
+        if n > 64:
+            if n > 96:
+                acc += mix(48, 96) + mix(n - 64, 112)
+            acc += mix(32, 64) + mix(n - 48, 80)
+        acc += mix(16, 32) + mix(n - 32, 48)
+    acc = (acc + mix(0, 0) + mix(n - 16, 16)) & M
+    acc ^= acc >> 37
+    acc = (acc * 0x165667919E3779F9) & M
+    return acc ^ (acc >> 32)
 
 def convert(dff, txd, vd, xd, model_id, out_mdl, out_xet, tris=3000, offset=(0.0, 0.0, 0.0), rotate="", skip=("bullet",),
             keep=(), prefix="iwp_", tex_max=128, crease=50.0, opaque=True, bake=True, atlas=(128, 128), min_part=0.02,
-            local=False, log=print):
+            local=False, bits=4, mirror=True, fullres=1, out_png=None, hd_out=None, log=print):
     parts = load_parts(dff, skip, keep, log, local)
     rot = rotation(rotate)
     parts = [(tex, tuple(tuple(sum(p[k] * rot[k][c] for k in range(3)) + offset[c] for c in range(3)) for p in ps), uvs)
              for tex, ps, uvs in parts]
     if bake:
-        return convert_baked(parts, txd, vd, xd, model_id, out_mdl, out_xet, tris, prefix, atlas, crease, min_part, log)
+        return convert_baked(parts, txd, vd, xd, model_id, out_mdl, out_xet, tris, prefix, atlas, crease, min_part, log,
+                             bits, mirror, fullres, out_png, hd_out)
     P, W, T = weld(parts)
     log("  welded: %d positions, %d wedges, %d triangles" % (len(P), len(W), len(T)))
     if tris and len(T) > tris:
@@ -805,7 +1082,8 @@ def convert(dff, txd, vd, xd, model_id, out_mdl, out_xet, tris=3000, offset=(0.0
         m.simplify(tris)
         P, W, T = m.compact()
         log("  simplified to %d triangles (budget %d)" % (len(T), tris))
-    N = corner_normals(P, W, T, crease)
+    # one normal per facing group at a position (shared by its corners, so strips run on through them)
+    N = grouped_normals(P, [[W[w][0] for w in t] for t in T], crease)
     lo = [min(p[i] for p in P) for i in range(3)]; hi = [max(p[i] for p in P) for i in range(3)]
     vlo, vhi = vcs_box(vd)
     log("  box %s..%s (VCS's %s..%s)" % (["%.3f" % x for x in lo], ["%.3f" % x for x in hi],
@@ -833,7 +1111,7 @@ def convert(dff, txd, vd, xd, model_id, out_mdl, out_xet, tris=3000, offset=(0.0
                 t.append(weldv[key])
             if len(set(t)) == 3:
                 tl.append(tuple(t))
-        seq_idx, nstrips = stripify(tl)
+        seq_idx, nstrips = stripify2(tl)
         out_groups.append(((prefix + tex)[:31], [rep[i] for i in seq_idx], prm))
         total_tris += len(tl)
         log("  %-26s %5d tris %5d verts -> %4d strips, %6d strip verts (%.2f / tri)%s" % (
@@ -869,6 +1147,17 @@ def convert(dff, txd, vd, xd, model_id, out_mdl, out_xet, tris=3000, offset=(0.0
         total_tris, total, len(mdl), (len(mdl) + 2047) // 2048, len(xet), (len(xet) + 2047) // 2048))
     return {"tris": total_tris, "strip_verts": total, "mdl": len(mdl), "xet": len(xet)}
 
+def write_manifest(path, tid, r):
+    """<mods>/fullres/manifest.json: texture dictionary id -> the in-game atlas (name, shape bits, palette hash) and its
+    PNG, for tools/weapon_textures.py to name after the game's texture identity"""
+    import json
+    try:
+        m = json.load(open(path))
+    except (OSError, ValueError):
+        m = {}
+    m[str(tid)] = {k: r[k] for k in ("png", "texture", "palette_hash", "shape", "size")}
+    json.dump(m, open(path, "w"), indent=1)
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pack", help="the Immersive Weapons Pack's modloader folder: convert every weapon in PACK")
@@ -889,7 +1178,11 @@ def main():
     ap.add_argument("--offset", help="x,y,z (m) added after the rotation")
     ap.add_argument("--rotate", help="e.g. z:180 (degrees about the model's axes, applied in order)")
     ap.add_argument("--crease", type=float, default=50.0, help="smoothing angle for the normals (degrees)")
-    ap.add_argument("--atlas", help="baked texture size, e.g. 256x128")
+    ap.add_argument("--atlas", help="baked texture size, e.g. 256x128, or a texel count (32768: the shape with the most texels per metre)")
+    ap.add_argument("--bits", type=int, choices=(4, 8), help="baked texture depth (default 4: 16 colours)")
+    ap.add_argument("--no-mirror", action="store_true", help="paint each side of the model on its own")
+    ap.add_argument("--fullres", type=int, default=4, help="the atlas is baked this many times larger as a PNG for the texture replacements (<mods>/fullres/<texture id>.png + manifest.json; 1: none)")
+    ap.add_argument("--hd", action="store_true", help="the full mesh for WeaponHD.asi too (<mods>/weaponhd/<model id>.whd); the atlas then laid out and painted from it")
     ap.add_argument("--no-bake", action="store_true",
                     help="keep the SA texture coordinates and textures (no atlas; simplification stops early)")
     a = ap.parse_args()
@@ -920,7 +1213,9 @@ def main():
         if a.prefix is not None: opt["prefix"] = a.prefix
         if a.offset is not None: opt["offset"] = a.offset
         if a.rotate is not None: opt["rotate"] = a.rotate
-        if a.atlas: opt["atlas"] = tuple(int(x) for x in a.atlas.lower().split("x"))
+        if a.atlas: opt["atlas"] = int(a.atlas) if a.atlas.isdigit() else tuple(int(x) for x in a.atlas.lower().split("x"))
+        if a.bits: opt["bits"] = a.bits
+        if a.no_mirror: opt["mirror"] = False
         if a.no_bake: opt["bake"] = False
         for k in ("skip", "keep"):
             if isinstance(opt.get(k), str):
@@ -936,7 +1231,15 @@ def main():
         else:
             vd, xd, mid = open(a.vcs_mdl, "rb").read(), open(a.vcs_xet, "rb").read(), a.model_id
             out_mdl, out_xet = a.out_mdl, a.out_xet
-        convert(dff, txd, vd, xd, mid, out_mdl, out_xet, tex_max=a.tex, crease=a.crease, **opt)
+        if a.fullres > 1 and opt.get("bake", True) and t is not None:
+            os.makedirs(os.path.join(a.mods, "fullres"), exist_ok=True)
+            opt["fullres"], opt["out_png"] = a.fullres, os.path.join(a.mods, "fullres", "%d.png" % tid)
+        if a.hd and opt.get("bake", True) and t is not None:
+            os.makedirs(os.path.join(a.mods, "weaponhd"), exist_ok=True)
+            opt["hd_out"] = os.path.join(a.mods, "weaponhd", "%d.whd" % mid)
+        r = convert(dff, txd, vd, xd, mid, out_mdl, out_xet, tex_max=a.tex, crease=a.crease, **opt)
+        if r.get("png"):
+            write_manifest(os.path.join(a.mods, "fullres", "manifest.json"), tid, r)
 
 if __name__ == "__main__":
     main()

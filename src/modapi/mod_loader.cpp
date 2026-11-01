@@ -285,6 +285,9 @@ namespace vcs::modapi
                 vcs::hleworld::setLitRefiner(reinterpret_cast<const void *>(fn), user);
             };
             present_hooks::fillApi(a); // add_present_hook, render_set_split_layers, present_window_copy (mod_present.cpp)
+            a.add_lit_refiner = [](VcsLitRefineFn fn, void *user) -> int {
+                return vcs::hleworld::addLitRefiner(reinterpret_cast<const void *>(fn), user) ? 1 : 0;
+            };
             return a;
         }
 #if defined(__clang__)

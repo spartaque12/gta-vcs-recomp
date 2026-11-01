@@ -2259,6 +2259,39 @@ on a model's load state, a weapon's clip and state) and by reading the chunks st
   which evicts least-recently-used streamed objects (FUN_003C9F10) until the largest free block fits, so a bigger file
   costs world data, not a failure (a 500 KB Colt45 loaded). Every weapon a ped carries stays loaded (its model's refs),
   so the converted weapons were kept at 25 - 110 KB each (VCS's: 2 - 13 KB); a full inventory costs ~0.6 MB.
+- **Where the streaming heap comes from** (2026-10-31, the generated code): the game's **main heap** is the CMemoryHeap
+  at **0x51D6A0** (FUN_002BB658 returns it; FUN_002BB6A0 constructs it once and FUN_002BB6F8 -> **CMemoryHeap::Init
+  FUN_002BB768(heap, start, size, small-block area)** gives it 0x74DF54 .. 0x1FE0000, 25.7 MB with 0x80000 of
+  small-block pools; FUN_002BC730(heap, size) allocates, sizes up to 0x100 from the pools; FUN_002BD178(size) =
+  allocate from the main heap). **FUN_002E5688** (called once from FUN_0021C5E8 at 0x21C8E0, guarded by heap +0x12C;
+  FUN_00255308 0x2554D8 the same) takes **0x567000 bytes** (lui 0x56 / ori 0x7000 at 0x2E5698 and 0x2E56A4) from the
+  main heap through FUN_002BD178 (returning to 0x2E56A4) and makes them the streaming heap 0x51F420 with Init (returning
+  to 0x2E56C0): 0x1180B78 .. 0x16E77F8 in play. FUN_0021C5E8 sets both heaps' out-of-memory callbacks (FUN_002BCC50;
+  0x21C300 and 0x21C3A8) and the small-block pool sizes (FUN_002BD0C8). FUN_003693A0 makes a third, 0x7D000-byte heap the
+  same way. Header: +0 size, +4 callback, +8 free-block tree, +0xC first block, +0x10 end, +0x14 bytes used.
+- **No RAM beyond 32 MB**: guest addresses are masked to 0x1FFFFFF (the runtime's 32 MB); the main heap ends 128 KB under
+  the top (the stack). In play (Downtown, four city spots, a full inventory) **the main heap has 0.9 - 1.0 MB free**
+  (one block of 0.93 - 1.0 MB): that is the only spare memory. Zero-filled runs elsewhere (0x548000 / 0x640000, in the
+  0x500000 - 0x6FFFFF packet buffers; 0x80000 below the ELF) are not known to be unused and were left alone.
+- **Measured headroom of the streaming heap** (hidden runs, `heaptest`: a full inventory - chainsaw, grenade, Python,
+  SPAS, MP5, M4, sniper rifle, minigun, camera - then five busy spots with the camera turned round; the CStreaming infos
+  counted, the override's loads from the log): 140 - 170 objects loaded; collision ~2.5 MB, models ~1.8 MB, texture
+  dictionaries 0.6 - 1.0 MB, animations 0.2 - 0.3 MB; 0.1 - 0.4 MB free in 20 - 50 blocks. With the 80's VC True
+  Vegetation port's files (1.1 MB) in the folder too, a weapon inventory of 0.29 MB caused no reloads, 0.58 MB 135 at one
+  spot, the first conversion's 0.82 MB 180 - 1440 reloads of a vegetation dictionary in ten seconds at three of five spots
+  (evicted and loaded again every frame), and SA's own texture coordinates at 4 - 6k triangles (2.7 MB) ended the game
+  thread (pc 0) while the sixth weapon loaded. So the streaming heap is full: bigger weapons cost the world.
+- **The weapons' batches as the native lit draw sees them** (2026-11-01, WeaponHD.asi; the refiner's `VcsLitBatch`):
+  rigid, one batch per MSCAL of the converted packets (<= 70 strip vertices, 2 shared with the next), `pos` the model's
+  int16 positions (V3-16, signed), **pos_scale 1/32768 and pos_offset ~1.5e-5** (the model's scale and centre from its
+  geometry header are in the matrices, not here), normals of length ~127, uv the V2-8 values with **the third lane
+  255** (the STROW fill; a refined batch with 0 there drew nothing), all as uploaded - so a hash of the positions
+  identifies each batch of each converted model (FNV-1a over count + int32 x / y / z; 991 batches over 28 models, no
+  collisions). Frame cost of drawing the full meshes instead (M4 51k, minigun ~40k triangles; hidden run, held, D3D11):
+  render 0.6 ms either way, GPU 1.2 -> 1.5 ms, +52k vertices.
+- **The floating M4 muzzle** was not a transform: the M4's barrel is a separate 133-triangle piece (x 0.26 .. 0.63), and
+  simplifying the whole 51k-triangle model to 1.7k flattened it into a line (quadrics count a thin part's collapse as
+  cheap). Each piece is now simplified on its own with a floor that grows with its length.
 - **Weapon frames**: SA and VCS share the convention (x along the barrel, z up, the grip near the hand bone's origin),
   but VCS's grips sit ~6 cm further forward and ~2.5 cm higher in the hand frame (the median over the guns fitted to
   VCS's own models at the grip), and VCS's long melee weapons lean ~20 degrees forward about y (golf club 21, bat and
@@ -2303,10 +2336,27 @@ Found by reading the 'mina' chunks from the disc (CStreaming ids 8392 + the bloc
   crouching lowers the root 0.58 m in SA, 0.59 - 0.63 m in VCS.
 - **SA's fire anims lean on SA's aiming IK**: unaimed they leave the elbow bent (colt45_fire's forearm 97 degrees off
   VCS's at the fire point), and their spine / neck keys (the clavicles' parents) tip the gun up - converted as they are,
-  the Colt45 fired pointing at the sky. VCS's own fire anims hold the gun out themselves and carry only the arms. So a
-  converted standing fire anim keeps the arms (21-25, 31-35) and both clavicles turn, in the neck's frame, by the
-  rotation that puts SA's gun hand (21 * 22 * 23 * 24) onto VCS's own anim's at the weapon's fire point; the second hand
-  of a two-handed hold moves with it.
+  the Colt45 fired pointing at the sky. VCS's own fire anims hold the gun out themselves. So a converted fire anim keeps
+  SA's arms (21-25, 31-35) and both clavicles turn, in the neck's frame, by the rotation that puts SA's gun hand
+  (21 * 22 * 23 * 24) onto VCS's own anim's at the weapon's fire point; the second hand of a two-handed hold moves with
+  it. **The body comes from VCS's own anim** (correction, below): only colt45_fire carries just the arms (21-24); every
+  other VCS fire / crouch-fire anim carries the whole body (root, spine, neck, legs; RIFLE_fire turns the shoulders for
+  the rifle stance, UZI_fire adds bone 6).
+- **The aim over the anims** (2026-10-31, free aim, hidden runs with the rig: R1 held, the view turned by `mouse`
+  counts, the right hand's x axis - the barrel, bone 15 - against the view's direction, held and 0.25 s into firing):
+  AimGun's IK works on top of the anim pose, so with VCS's own anims the gun follows the view within 5 - 15 degrees
+  (Colt45 up / down 36 degrees: hand pitch 41 / -30; M4 23 / -44; MP5 39 / -32). **CWeaponInfo byte 0 bit 0x80 = aims
+  with the arm** (ped IK flag 4): set for 19 Colt45, 24 Tec9, 26 silenced Ingram only (the rest 0x40; 28 0x50, 32 0x34,
+  33 0x5E). Anim group (+0x40) per type: 19 -> 14 (colt45 block). The arm IK turns the **right upper arm alone**, so it
+  points the gun only when the anim holds it along a straight arm (VCS's colt45_fire): with SA's two-handed / bent-elbow
+  pistol anims the gun stayed 28 - 33 degrees off the aim and the IK gave up (ped +0x1C8 bit 0x400 bCanPointGunAtTarget
+  clear, IK flags 0x9E instead of 0x97) - **the pack's pistol fire anims cannot follow free aim** without moving the
+  Colt45 to the torso IK (a change of that bit), so the colt45 block keeps VCS's fire / crouch-fire and takes the pack's
+  reloads only. The other guns aim with the torso (PED_MID), which turns the anim's whole upper body: the arms-only
+  conversion had lost VCS's body pose (RIFLE_fire's turned shoulders), so the M4 / shotgun pointed 53 degrees left of
+  the aim at every pitch - the user's "the gun does not rotate to where I aim". With VCS's body under SA's aligned arms
+  the errors are VCS's own: M4 13 - 16 degrees (VCS's 9 - 15), Uzi / MP5 4 - 10, Spas 9 - 15, Python 11 - 27 (its
+  recoil). The Tec9 and silenced Ingram (arm IK) use none of the converted blocks (3 degrees).
 - The Tec9 fires with neither the TEC (8474) nor the UZI block loaded by it in the checks (one-handed, as before the
   change): TEC is not used by the player's weapons; the Uzi, MP5 (and the silenced Ingram) use UZI.
 - Checked (hidden runs, build/iwp/stageB): every converted block loads through the override (CStreaming state 1), the

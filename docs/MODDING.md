@@ -101,7 +101,12 @@ What the table gives:
   (`VcsLitBatch`: kind skinned / rigid / environment-mapped, the strip's VU data as ints, bone encoding, position
   scale / offset); a returned `VcsLitRefined` (vertices in the batch's units, a strip of indices, a content key) is drawn
   in the batch's place: skinned in the exe, lit by vs_lit, the environment pass rebuilt from it. Batches through the VU
-  clipper are not offered. `src/game/vcs_hle_world.cpp` (`refineLit`).
+  clipper are not offered. `src/game/vcs_hle_world.cpp` (`refineLit`). Several refiners: `add_lit_refiner(fn, user)`
+  (appended 2026-11-01, check `VCS_MOD_API_HAS(api, add_lit_refiner)`) adds one to a chain asked before the one
+  `set_lit_refiner` set, in the order added; the first to return geometry draws the batch (at most 8). Units, as found
+  for WeaponHD: a rigid model's positions are its int16 positions (the batch's `pos_scale` is 1/32768, the model's own
+  scale and centre are in the matrices), normals of length ~127, uv in V2-8 units; keep the batch's third uv lane
+  (`uv[i][2]`, 255 from the packets' STROW) - the shader reads it, and 0 drew nothing.
 
 Building: the hooks use the guest calling convention (`VCS_GUEST_CC`, clang's `preserve_none` on x86-64), so a mod is
 built with clang-cl (Windows) or clang (Linux), against the DLL C runtime (`/MD`, as vcs.exe), with the exe's float flags

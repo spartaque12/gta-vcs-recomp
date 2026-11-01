@@ -94,7 +94,7 @@ class Grid:
         return out
 
 # ---- charts and the atlas -------------------------------------------------------------------------------------------
-SUBSAMPLES = ((-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25))
+SUBSAMPLES = tuple((x, y) for y in (-1 / 3, 0.0, 1 / 3) for x in (-1 / 3, 0.0, 1 / 3))  # 3 x 3 a texel
 
 AXES = [((1, 0, 0), (0, 1, 0), (0, 0, 1)), ((-1, 0, 0), (0, -1, 0), (0, 0, 1)),
         ((0, 1, 0), (-1, 0, 0), (0, 0, 1)), ((0, -1, 0), (1, 0, 0), (0, 0, 1)),
@@ -187,7 +187,7 @@ def sample(tex, u, v):
             out[0] += px[o] * k; out[1] += px[o + 1] * k; out[2] += px[o + 2] * k
     return out
 
-def bake(P, T, charts, place, s, aw, ah, high, textures, reach, log=print):
+def bake(P, T, charts, place, s, aw, ah, high, textures, reach, log=print, grow=4):
     """P, T: the simplified mesh; high: [(texture, (p0, p1, p2), (uv0, uv1, uv2))] the detailed model;
     textures: name -> (w, h, rgba). -> (rgba bytes of aw x ah, filled mask)"""
     hp = [h[1] for h in high]
@@ -256,7 +256,7 @@ def bake(P, T, charts, place, s, aw, ah, high, textures, reach, log=print):
                     if a < -m or b < -m or c < -m:
                         continue
                     acc, got = [0.0, 0.0, 0.0], 0
-                    for sx, sy in SUBSAMPLES:  # 2 x 2 samples a texel: the detailed textures are much finer
+                    for sx, sy in SUBSAMPLES:  # 3 x 3 samples a texel: the detailed textures are much finer
                         qx, qy = px + sx, py + sy
                         a = ((q[1][1] - q[2][1]) * (qx - q[2][0]) + (q[2][0] - q[1][0]) * (qy - q[2][1])) / den
                         b = ((q[2][1] - q[0][1]) * (qx - q[2][0]) + (q[0][0] - q[2][0]) * (qy - q[2][1])) / den
@@ -275,22 +275,23 @@ def bake(P, T, charts, place, s, aw, ah, high, textures, reach, log=print):
     log("  baked: %d texels by ray, %d by nearest point, %d without a surface" % (stats["ray"], stats["near"], stats["none"]))
     filled = [c is not None for c in img]
     # grow the charts' borders over the empty texels (filtering at the edges)
-    for _ in range(4):
-        new = list(img)
-        for y in range(ah):
-            for x in range(aw):
-                if img[y * aw + x] is not None:
-                    continue
-                acc, n = [0.0, 0.0, 0.0], 0
-                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    xx, yy = x + dx, y + dy
-                    if 0 <= xx < aw and 0 <= yy < ah and img[yy * aw + xx] is not None:
-                        c = img[yy * aw + xx]
-                        acc[0] += c[0]; acc[1] += c[1]; acc[2] += c[2]
-                        n += 1
-                if n:
-                    new[y * aw + x] = [acc[0] / n, acc[1] / n, acc[2] / n]
-        img = new
+    def around(i):
+        x, y = i % aw, i // aw
+        if x > 0: yield i - 1
+        if x < aw - 1: yield i + 1
+        if y > 0: yield i - aw
+        if y < ah - 1: yield i + aw
+    # the empty texels next to painted ones, ring by ring (a full-resolution bake grows as far, scaled)
+    front = {j for i, c in enumerate(img) if c is not None for j in around(i) if img[j] is None}
+    for _ in range(grow):
+        new = {}
+        for i in front:
+            cs = [img[j] for j in around(i) if img[j] is not None]
+            if cs:
+                new[i] = [sum(c[0] for c in cs) / len(cs), sum(c[1] for c in cs) / len(cs), sum(c[2] for c in cs) / len(cs)]
+        for i, c in new.items():
+            img[i] = c
+        front = {j for i in new for j in around(i) if img[j] is None}
     out = bytearray(aw * ah * 4)
     for i, c in enumerate(img):
         if c is None:

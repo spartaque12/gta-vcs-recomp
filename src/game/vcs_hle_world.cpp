@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -1916,18 +1917,29 @@ namespace
         }
     }
 
-    // ---- a mod's refined geometry for lit batches (VcsModApi::set_lit_refiner: MeshSmooth.asi) ---------------------
+    // ---- a mod's refined geometry for lit batches (VcsModApi::set_lit_refiner / add_lit_refiner: WeaponHD.asi) ------
     // The refiner gets the batch's VU data as uploaded and may hand back a replacement - more vertices, a longer strip -
     // which the native lit draws then draw in the batch's place (the skinned one skinned here, the environment pass built
     // from it). Culling and the clip decision stay the original batch's. Without a refiner nothing changes.
     std::atomic<VcsLitRefineFn> g_litRefiner{nullptr};
     std::atomic<void *> g_litRefinerUser{nullptr};
+    // refiners added with add_lit_refiner (a chain: WeaponHD.asi and others): asked first, in the order added; the
+    // first to hand back geometry draws the batch, then the one set_lit_refiner set
+    constexpr int kMaxAddedRefiners = 8;
+    struct AddedRefiner
+    {
+        std::atomic<VcsLitRefineFn> fn{nullptr};
+        std::atomic<void *> user{nullptr};
+    };
+    AddedRefiner g_addedRefiners[kMaxAddedRefiners];
+    std::atomic<int> g_addedRefinerCount{0};
 
     const VcsLitRefined *refineLit(const uint8_t *vu, int kind, uint32_t posBase, uint32_t nrmBase, uint32_t uvBase,
                                    uint32_t wBase, uint32_t count, uint32_t drawCount)
     {
         const VcsLitRefineFn fn = g_litRefiner.load(std::memory_order_acquire);
-        if (!fn || count == 0u || count > 256u || drawCount < 3u)
+        const int added = g_addedRefinerCount.load(std::memory_order_acquire);
+        if ((!fn && !added) || count == 0u || count > 256u || drawCount < 3u)
             return nullptr;
         static thread_local int32_t pos[256][4], nrm[256][4], uv[256][4];
         static thread_local uint32_t w[256][4];
@@ -1952,11 +1964,18 @@ namespace
         b.bone_mask = kind == VCS_LIT_SKINNED ? static_cast<uint32_t>(loadI(vu, 0xA8).v[1]) : 0u;
         std::memcpy(b.pos_scale, loadF(vu, 42).v, 16);
         std::memcpy(b.pos_offset, loadF(vu, 43).v, 16);
-        const VcsLitRefined *r = fn(g_litRefinerUser.load(std::memory_order_relaxed), &b);
-        if (!r || r->vertex_count == 0u || r->vertex_count > 65535u || r->index_count < 3u || !r->pos || !r->nrm || !r->uv ||
-            !r->indices || (kind == VCS_LIT_SKINNED && !r->weights))
+        auto valid = [kind](const VcsLitRefined *r) {
+            return r && r->vertex_count != 0u && r->vertex_count <= 65535u && r->index_count >= 3u && r->pos && r->nrm &&
+                   r->uv && r->indices && (kind != VCS_LIT_SKINNED || r->weights);
+        };
+        for (int i = 0; i < added && i < kMaxAddedRefiners; ++i)
+            if (const VcsLitRefineFn f = g_addedRefiners[i].fn.load(std::memory_order_acquire))
+                if (const VcsLitRefined *r = f(g_addedRefiners[i].user.load(std::memory_order_relaxed), &b); valid(r))
+                    return r;
+        if (!fn)
             return nullptr;
-        return r;
+        const VcsLitRefined *r = fn(g_litRefinerUser.load(std::memory_order_relaxed), &b);
+        return valid(r) ? r : nullptr;
     }
 
     // the refined strip as vs_lit's 48-byte vertices (pos, uv, normal, pad)
@@ -3195,6 +3214,18 @@ namespace
 
 void vcs::hleworld::setMeshCapture(WorldMesh *capture) { t_meshCapture = capture; }
 void vcs::hleworld::setMeshHint(const WorldMesh *hint) { t_meshHint = hint; }
+bool vcs::hleworld::addLitRefiner(const void *fn, void *user)
+{
+    static std::mutex lock;
+    std::lock_guard<std::mutex> guard(lock);
+    const int n = g_addedRefinerCount.load(std::memory_order_relaxed);
+    if (!fn || n >= kMaxAddedRefiners)
+        return false;
+    g_addedRefiners[n].user.store(user, std::memory_order_relaxed);
+    g_addedRefiners[n].fn.store(reinterpret_cast<VcsLitRefineFn>(const_cast<void *>(fn)), std::memory_order_release);
+    g_addedRefinerCount.store(n + 1, std::memory_order_release);
+    return true;
+}
 void vcs::hleworld::setLitRefiner(const void *fn, void *user)
 {
     g_litRefinerUser.store(user, std::memory_order_relaxed);

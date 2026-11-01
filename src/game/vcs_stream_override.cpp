@@ -43,10 +43,19 @@ namespace vcs::streamoverride
         constexpr uint32_t kInfos = 200u;                // CStreaming + 200 -> the streaming infos
         constexpr uint32_t kInfoSize = 0x18u, kInfoSectors = 0x14u;
         constexpr uint32_t kSector = 2048u;
-        constexpr int kA0 = 4, kA1 = 5, kA2 = 6;
+        constexpr int kA0 = 4, kA1 = 5, kA2 = 6, kRa = 31;
+        // The streaming heap (game-internals.md 12g): FUN_002E5688 takes 0x567000 bytes from the main heap
+        // (FUN_002BD178(size), returning to 0x2E56A4) and makes them the CMemoryHeap at 0x51F420 (CMemoryHeap::Init
+        // FUN_002BB768(heap, start, size, 0), returning to 0x2E56C0); its size is those two instructions' constant.
+        constexpr uint32_t kMainAlloc = 0x002BD178u, kHeapInit = 0x002BB768u;
+        constexpr uint32_t kAllocReturn = 0x002E56A4u, kInitReturn = 0x002E56C0u, kStreamHeap = 0x0051F420u;
+        constexpr uint32_t kStreamHeapSize = 0x567000u;
 
         PS2Runtime::RecompiledFunction g_origRequest = nullptr;
         PS2Runtime::RecompiledFunction g_origConvert = nullptr;
+        PS2Runtime::RecompiledFunction g_origMainAlloc = nullptr;
+        PS2Runtime::RecompiledFunction g_origHeapInit = nullptr;
+        uint32_t g_heapSize = kStreamHeapSize; // the streaming heap's size with the extra memory
         std::map<uint32_t, std::vector<uint8_t>> g_files; // id -> the file (read once at start)
 
         uint32_t rd32(const uint8_t *ram, uint32_t a)
@@ -97,6 +106,26 @@ namespace vcs::streamoverride
                     }
                 }
             return g_origRequest(rdram, ctx, runtime);
+        }
+
+        // The streaming heap's allocation and Init get the bigger size (before the originals; their other callers as
+        // they were).
+        PS2_GUEST_CC void mainAlloc(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            if (GPR_U32(ctx, kRa) == kAllocReturn && GPR_U32(ctx, kA0) == kStreamHeapSize)
+            {
+                SET_GPR_U32(ctx, kA0, g_heapSize);
+                std::fprintf(stderr, "[streamoverride] streaming heap: %u KB (the game's %u KB)\n", g_heapSize >> 10,
+                             kStreamHeapSize >> 10);
+            }
+            return g_origMainAlloc(rdram, ctx, runtime);
+        }
+
+        PS2_GUEST_CC void heapInit(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
+        {
+            if (GPR_U32(ctx, kRa) == kInitReturn && GPR_U32(ctx, kA0) == kStreamHeap && GPR_U32(ctx, kA2) == kStreamHeapSize)
+                SET_GPR_U32(ctx, kA2, g_heapSize);
+            return g_origHeapInit(rdram, ctx, runtime);
         }
 
         PS2_GUEST_CC void convertBuffer(uint8_t *rdram, R5900Context *ctx, PS2Runtime *runtime)
@@ -152,5 +181,20 @@ namespace vcs::streamoverride
             return;
         runtime.replaceFunction(kRequestModel, &requestModel);
         runtime.replaceFunction(kConvertBuffer, &convertBuffer);
+
+        // More streaming memory for the bigger files: VCS_STREAM_HEAP_EXTRA_KB (default 384, 0 = the game's 5532 KB,
+        // at most 768). Taken from the main heap's free space (about 1 MB in play, 0.6 MB left; game-internals.md 12g).
+        long extra = 384;
+        if (const char *e = std::getenv("VCS_STREAM_HEAP_EXTRA_KB"); e && *e)
+            extra = std::strtol(e, nullptr, 10);
+        extra = extra < 0 ? 0 : extra > 768 ? 768 : extra;
+        g_heapSize = kStreamHeapSize + static_cast<uint32_t>(extra) * 1024u;
+        g_origMainAlloc = runtime.lookupFunction(kMainAlloc);
+        g_origHeapInit = runtime.lookupFunction(kHeapInit);
+        if (extra && g_origMainAlloc && g_origHeapInit)
+        {
+            runtime.replaceFunction(kMainAlloc, &mainAlloc);
+            runtime.replaceFunction(kHeapInit, &heapInit);
+        }
     }
 }

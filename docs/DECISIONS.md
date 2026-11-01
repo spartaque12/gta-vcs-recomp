@@ -788,6 +788,33 @@ this layout by default too. Tests were skipped at the user's request for this fo
   (loop / fire points, reload time) stay. Standing fire anims are aimed to VCS's own at the fire point and keep only
   the arms (game-internals.md 12i): SA's rely on SA's aiming IK. TEC (unused by the player) is converted by the tool
   but not installed.
+- **Rework after the user's report** (same day: the gun did not follow free aim, an M4 muzzle floated, muddy
+  textures): fire anims take **VCS's own body under SA's aligned arms** (the arms-only conversion had dropped the
+  rifle stance's turned shoulders: 53 degrees off the aim); the **Colt45 keeps VCS's fire anims** and takes only the
+  pack's reloads - it aims with the arm, and SA's two-handed pistol pose cannot follow that IK (game-internals.md 12i;
+  moving it to the torso IK would change its CWeaponInfo flag, not done). The CJ's-anims idea has the same problem
+  (SA's anims all lean on SA's IK). Models: **each separate piece simplified on its own** with a floor by length (the
+  barrel survives), **4-bit atlases with the two sides sharing texels** (twice the texels for the bytes of the old 8-bit
+  ones; 16 colours, k-means), the pack's textures read at the mip that fits the atlas (no aliasing noise). **Budgets
+  stay inside the streaming heap**: measured, it has no headroom (game-internals.md 12g) - the old set already made the
+  vegetation port thrash - so a full inventory is ~0.53 MB (guns 1000 - 1200 triangles, 32K-texel atlases; small items
+  400 / 16K), 1.3 MB for all files.
+- **Full-resolution textures through the texture replacements, not the heap** (the user's "use full-res textures"):
+  the atlas is baked at four times its size (1024 px wide for a gun) and written as a PCSX2-named PNG for
+  `render/texture_replacements` (upstream PR #8); the game keeps its small 4-bit atlas, which the PNG replaces on the
+  host GPU (no guest memory). The name is the game's own hash of the uploaded texture, so `tools/weapon_textures.py
+  name` learns it from a traced run (each atlas has its own CLUT: matched by the palette hash, XXH3 computed in
+  weapon_convert.py) and installs the PNGs in `textures/SLUS-21590/replacements/weapons/`. Needs Graphics > Texture
+  replacements on; without it the small atlas shows.
+- **The full meshes on the host, not a better simplifier** (2026-11-01, the user's "holes in gun"): any small model the
+  streaming heap can hold (~1000 triangles of a 50k-triangle gun) tears thin, open parts (the carry handle, sights),
+  and the +384 KB the heap can borrow from the main heap buys too little. So **WeaponHD.asi** (VCS-mods) draws the pack's
+  full mesh in the small model's place through the lit refiner, which the exe now chains (`add_lit_refiner`). The atlas
+  is laid out and painted from the full mesh (its box views, z-buffered: `tools/weapon_hd.py`), so both meshes share
+  it and its full-resolution PNG; each small-model batch gets the full-mesh triangles nearest to it (it then follows
+  that batch's culling), found in the game by a hash of the batch's positions. Data: `<mods>/weaponhd/<model>.whd`
+  (`weapon_convert.py --hd`, 16 MB for 28 weapons), host memory only. Batches the VU clipper takes still draw the small
+  model (rare: a weapon crossing the guard band).
 
 ## 2026-10-31 - Jolt Physics, milestone 1: death ragdolls (the user's request: SA's "[SA] Jolt Physics" mod)
 

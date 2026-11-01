@@ -38,8 +38,10 @@ BLOCKS = {
 # Hands"); the shotgun takes the pack's chromegun set (newshot), the sniper rifle its bolt-action set (boltsnp).
 _P = "VI - Animations/anims/"
 PACK = {
-    "colt45": (_P + "colt45.ifp", {"colt45_crouchfire": "colt45_crouchfire", "colt45_crouchreload": "colt45_crouchreload",
-                                    "colt45_fire": "colt45_fire_2hands", "colt45_reload": "colt45_reload"}),
+    # the Colt45 aims with the arm (its CWeaponInfo flag 0x80: VCS's IK turns the right upper arm alone, which points
+    # the gun only along a straight arm - SA's two-handed and bent-elbow fire anims came out 30 degrees off the aim and
+    # the IK gave up, game-internals.md 12i): its fire anims stay VCS's, the reloads are the pack's
+    "colt45": (_P + "colt45.ifp", {"colt45_crouchreload": "colt45_crouchreload", "colt45_reload": "colt45_reload"}),
     "python": (_P + "python.ifp", {"python_crouchfire": "python_crouchfire", "python_crouchreload": "python_crouchreload",
                                     "python_fire": "python_fire", "python_reload": "python_reload"}),
     "shotgun": (_P + "newshot.ifp", {"shotgun_crouchfire": "newshot_crouchfire", "shotgun_fire": "newshot_fire"}),
@@ -278,21 +280,59 @@ def aim_alignment(nodes, ref, t):
         return None
     return qnorm(qmul(arm_rotation(ref, t), qinv(arm_rotation(sa, t))))
 
-def retarget(name, sa_name, nodes, size_hint=0, log=print, align=None):
+ARMS = (21, 22, 23, 24, 25, 31, 32, 33, 34, 35)
+
+def body_track(own, dur):
+    """one of VCS's own tracks (parsed, delta times) cut or held to `dur` s: [(t, q, p)] absolute times"""
+    t, ks = 0.0, []
+    for dt, q, p in own["keys"]:
+        t += dt
+        ks.append((t, q, p))
+    if ks[-1][0] > dur:
+        q = sample(ks, dur)
+        prev = [k for k in ks if k[0] < dur]
+        nxt = next(k for k in ks if k[0] >= dur)
+        p = None
+        if nxt[2] is not None:
+            a = prev[-1] if prev else nxt
+            f = (dur - a[0]) / (nxt[0] - a[0]) if nxt[0] > a[0] else 0.0
+            p = tuple(x + (y - x) * f for x, y in zip(a[2], nxt[2]))
+        ks = prev + [(dur, q, p)]
+    return ks
+
+def retarget(name, sa_name, nodes, size_hint=0, log=print, align=None, own=None):
     """SA nodes -> a VCS hierarchy {name, dur, size, tracks}; align: (VCS's own anim as vcs_keys, time) to point the
-    gun as it does"""
+    gun as it does; own: VCS's own anim (parsed) - a fire anim takes its body from it"""
     by_bone = {}
     for n in nodes:
         if n["bone"] in PARENT or n["bone"] == 0:
             by_bone.setdefault(n["bone"], n)
     g = aim_alignment(nodes, *align) if align else None
-    if align and not any(n["bone"] == 0 for n in nodes):
-        # a standing fire anim: the arms only, as VCS's own (its torso and head from the ped's other anims - SA's
-        # spine / neck keys, the arms' parents, assume SA's aiming IK and tip the gun upward)
-        by_bone = {b: n for b, n in by_bone.items() if b >= 21}
+    body = {}
+    if align:
+        # a fire anim: SA's arms on VCS's own body. SA's root / spine / neck keys (the arms' parents) assume SA's aiming
+        # IK and tip the gun upward, and VCS's IK turns the torso of VCS's own pose (its fire anims turn the shoulders
+        # for a rifle), so the body is VCS's anim's (or, where that has only the arms, the ped's other anims, as VCS's)
+        # and the arms are aligned in the neck's frame (game-internals.md 12i)
+        by_bone = {b: n for b, n in by_bone.items() if b in ARMS}
+        if own:
+            body = {tr["bone"]: tr for tr in own["tracks"] if tr["bone"] not in ARMS}
     dur = max(n["keys"][-1][0] for n in nodes if n["keys"])
     tracks, nkeys = [], 0
-    for bone, hsh in VCS_BONES:
+    order = list(VCS_BONES)
+    for b, tr in body.items():  # bones VCS's anim has that the list lacks (UZI_fire's 6) after the head
+        if b not in dict(VCS_BONES):
+            order.insert(6, (b, tr["hash"]))
+    for bone, hsh in order:
+        if bone in body:
+            ks = body_track(body[bone], dur)
+            last, deltas = 0.0, []
+            for t, q, p in ks:
+                deltas.append((t - last, q, p))
+                last = t
+            tracks.append({"flags": body[bone]["flags"], "bone": bone, "hash": body[bone]["hash"], "keys": deltas})
+            nkeys += len(deltas)
+            continue
         n = by_bone.get(bone)
         if not n or not n["keys"]:
             continue
@@ -347,7 +387,7 @@ def convert_block(block, iso, ifp_path, mapping, out_path, log=print):
             t = FIRE_POINT.get(an["name"], an["dur"] / 2)
             if all(b in ref for b in (21, 22, 23, 24)):
                 align = (ref, t)
-        h = retarget(an["name"], sname, nodes, an["size"], log=log, align=align)
+        h = retarget(an["name"], sname, nodes, an["size"], log=log, align=align, own=an if align else None)
         if align:
             log("      gun hand aligned to VCS's at %.2f s" % align[1])
         out.append(h)
