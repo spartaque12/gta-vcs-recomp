@@ -34,6 +34,7 @@ namespace present
         std::vector<uint8_t> g_captureRgba;
         // the mods' present hook and the window's last picture for windowCopy (presenter.h)
         void (*g_beforePresent)(void *user) = nullptr;
+        int g_presentOverride = -1; // setPresentModeOverride (a VR mod: the window never waits for the monitor)
         void *g_beforePresentUser = nullptr;
         std::unique_ptr<rhi::Texture> g_windowCopy;
         struct LastWindow
@@ -262,8 +263,10 @@ namespace present
     {
         if (g_beforePresent)
             g_beforePresent(g_beforePresentUser);
-        g_device->present(g_presentMode);
+        g_device->present(g_presentOverride >= 0 ? static_cast<rhi::Device::PresentMode>(g_presentOverride) : g_presentMode);
     }
+
+    void setPresentModeOverride(int mode) { g_presentOverride = mode; }
 
     void setBeforePresent(void (*fn)(void *user), void *user)
     {

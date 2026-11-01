@@ -98,6 +98,11 @@ void gsHwSetSplitLayers(bool on);
 // The last composed display's layers (main thread; valid until the next one). False when it had none (a picture from CPU
 // VRAM, a black frame, splitting off).
 bool gsHwSplitLayers(GSHwLayers &out);
+// [gta-recomp] The window size the picture's output (and, with "Match window", its render targets) is made for, in
+// place of the window's own (the VR mod's render scale: the headset's resolution, not the monitor's); 0 x 0 = the
+// window's again. Any thread.
+void gsHwSetOutputOverride(uint32_t width, uint32_t height);
+bool gsHwOutputOverride(uint32_t &width, uint32_t &height);
 // [gta-recomp] Widescreen: how much wider than 4:3 the game's 640-wide frame is shown (display aspect / (4/3)); the
 // native post effects widen their buffers by it so blur and warp keep their 4:3 proportions on screen. Any thread.
 void gsHwSetAspectWidening(float widening);

@@ -50,6 +50,9 @@ namespace present
     // shown. windowCopy: inside it, the window's last picture and Dear ImGui output (drawWindow's) rendered off-screen at
     // width x height (RGBA8, kept until the next call); null if it can't be made.
     void setBeforePresent(void (*fn)(void *user), void *user);
+    // A present mode in place of the setting's (rhi::Device::PresentMode; -1: the setting's again) - the VR mod, whose
+    // headset paces the frames, keeps the window from waiting for the monitor.
+    void setPresentModeOverride(int mode);
     rhi::Texture *windowCopy(int width, int height);
     void setFrameInputTime(int64_t steadyNs); // the shown frame's input snapshot (rhi::Device::setFrameInputTime)
     // How present() shows frames (the Display > Vertical sync setting; main thread).

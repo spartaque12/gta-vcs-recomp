@@ -24,6 +24,9 @@ namespace vcs
     constexpr int kCapUnlimited = 0;
     void setFrameCap(int fps);
     int frameCap();
+    // A headset's refresh rate in place of the cap while a VR mod paces the frames (VcsModApi.vr_set_pacing); 0 = the
+    // cap again. Any thread.
+    void setFrameRateOverride(double hz);
 
     // The pre-independence switch: 60 = setFrameCap(60), else 30.
     void setFrameRate60(bool on);

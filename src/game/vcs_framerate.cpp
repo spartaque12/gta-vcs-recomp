@@ -93,8 +93,12 @@ namespace vcs
 
         // the cap in frames per second: display refresh and unlimited included, at most kMaxFps unless the floor is
         // lowered (then unlimited is unlimited)
+        std::atomic<double> g_rateOverride{0.0}; // setFrameRateOverride (a VR headset's refresh)
+
         double effectiveFps()
         {
+            if (const double o = g_rateOverride.load(std::memory_order_relaxed); o > 0.0 && independent())
+                return std::min(o, static_cast<double>(kMaxFps));
             const int cap = g_cap.load(std::memory_order_relaxed);
             double fps = cap == kCapRefresh ? platform::displayRefreshHz() : cap == kCapUnlimited ? 0.0 : cap;
             const double limit = minStep() < kDefaultMinStep ? 0.0 : kMaxFps;
@@ -327,7 +331,11 @@ namespace vcs
         void applyPresentRate()
         {
             const double fps = effectiveFps();
-            platform::setFrameRate(independent() ? (fps > 0.0 ? std::max(60.0, fps) : 1000.0) : 60.0);
+            // a VR mod paces the host frames itself (xrWaitFrame): the window's own limiter steps aside, or the two
+            // clocks beat against each other and frames are missed
+            // (frame-rate independent timing only: the original timing's VBlank follows the host frames)
+            const bool vrPaced = g_rateOverride.load(std::memory_order_relaxed) > 0.0 && independent();
+            platform::setFrameRate(vrPaced ? 1000.0 : independent() ? (fps > 0.0 ? std::max(60.0, fps) : 1000.0) : 60.0);
             // the host runs at the cap: its frames can pace the game's (docs/PERFORMANCE.md 19)
             ps2SetHostPacedFrames(independent() && (fps <= 0.0 || fps >= 60.0) && !forcedStepFps());
         }
@@ -350,6 +358,12 @@ namespace vcs
     }
 
     int frameCap() { return g_cap.load(std::memory_order_relaxed); }
+
+    void setFrameRateOverride(double hz)
+    {
+        g_rateOverride.store(hz > 0.0 ? hz : 0.0, std::memory_order_relaxed);
+        applyPresentRate();
+    }
 
     void setFrameRate60(bool on) { setFrameCap(on ? 60 : 30); }
     bool frameRate60() { return frameCap() != 30; }

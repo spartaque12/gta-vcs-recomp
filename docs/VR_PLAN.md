@@ -34,6 +34,18 @@ without a headset (see "M0 as built" below); M1-M3 not started. The research (20
 - A friend package (`dist\VCS-VR-friend`, local only): the mods built from VCS-mods 3956187, the fork's vcs-mods source
   (93d18e2) as a zip, README_VR.txt. No vcs.exe: upstream releases ship none (source-only, DECISIONS.md 2026-10-21) -
   vcs.exe holds the recompiled game.
+- 2026-11-01, real-headset feedback ("first person occludes", "performance not great"): (1) in VR CameraAim hides the
+  player's body (Game > First person > "In VR: your body": Hidden - the default -, Arms and gun, Body), collapses the
+  neck too, takes the near plane down to 5 cm, drops the flat-screen "eyes ahead when looking away" push and adds the
+  headset's position (leaning, ducking; within 0.6 m); eye captures looking ahead / down / down-right / behind / left /
+  leaning show nothing of the player (`build\vr\vrperf.py occlusion`; Body mode shows the torso filling the lower view,
+  the friend's "occlusion"). (2) The window's frame limiter paced the loop: with the default cap of 60 a 90 Hz headset
+  got 60 frames a second (each shown 1.5x: judder). `vr_set_pacing(hz)` (frame-rate independent timing) runs the game
+  at the headset's rate with the limiter and vsync out of the way while VR runs. Measured in the city (575, 175),
+  test runtime, hidden: before 59.8 host fps / 59.8 new frames into 90 Hz; after 90.0 / 90.0 (8.4 ms of each 11.1 ms
+  spent waiting for the headset), 120 Hz: 119.9 / 119.9 (5.6 ms waiting); VR.asi's own work 0.04 ms CPU, 0.015 ms
+  GPU per frame. Render scale (Graphics > VR, 50-150%): the picture sized for the headset's pixels over the game's
+  field of view (`render_set_output_size`), not the window's. Original (PS2) timing keeps its 60 Hz host loop.
 - Next: M1 (stereo by frame replay). Known gaps: vehicles are cinema-only; the HUD is world-locked (it does not follow
   the body's turn); the window still presents (vsync on can halve the headset's rate: turn Display > Vertical sync off).
 yes, and this port is better placed for it than any PC GTA. The renderer records every frame as a list of draw

@@ -3,6 +3,7 @@
 // swapchain shows them.
 #include "modapi/mod_present.h"
 
+#include "game/vcs_framerate.h"
 #include "modapi/vcs_mod_api.h"
 #include "render/presenter.h"
 #include "rhi/rhi.h"
@@ -83,5 +84,10 @@ namespace vcs::modapi::present_hooks
         a.add_present_hook = &apiAddHook;
         a.render_set_split_layers = [](int on) { gsHwSetSplitLayers(on != 0); };
         a.present_window_copy = &apiWindowCopy;
+        a.vr_set_pacing = [](float hz) {
+            vcs::setFrameRateOverride(hz > 0.0f ? hz : 0.0);
+            present::setPresentModeOverride(hz > 0.0f ? 0 : -1); // Immediate while the headset paces
+        };
+        a.render_set_output_size = [](uint32_t w, uint32_t h) { gsHwSetOutputOverride(w, h); };
     }
 }

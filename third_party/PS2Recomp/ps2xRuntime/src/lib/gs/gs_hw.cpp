@@ -210,6 +210,19 @@ void gsHwSetHudLayer(bool on) { g_hudLayer.store(on, std::memory_order_relaxed);
 static std::atomic<bool> g_splitLayers{false};
 static GSHwLayers g_splitOut; // main thread
 void gsHwSetSplitLayers(bool on) { g_splitLayers.store(on, std::memory_order_relaxed); }
+// [gta-recomp] gsHwSetOutputOverride (gs_hw.h): the VR mod's render scale
+static std::atomic<uint64_t> g_outputOverride{0};
+void gsHwSetOutputOverride(uint32_t width, uint32_t height)
+{
+    g_outputOverride.store(width && height ? (uint64_t(width) << 32) | height : 0u, std::memory_order_relaxed);
+}
+bool gsHwOutputOverride(uint32_t &width, uint32_t &height)
+{
+    const uint64_t v = g_outputOverride.load(std::memory_order_relaxed);
+    width = static_cast<uint32_t>(v >> 32);
+    height = static_cast<uint32_t>(v);
+    return v != 0;
+}
 bool gsHwSplitLayers(GSHwLayers &out)
 {
     out = g_splitOut;

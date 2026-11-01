@@ -460,6 +460,11 @@ static bool UploadGpuFrame(present::Picture &owned, present::Picture &shown, PS2
             // [gta-recomp] the size the picture is shown at: the window's letterboxed area (the native HUD layer)
             int windowW = 0, windowH = 0;
             platform::windowSize(windowW, windowH);
+            if (uint32_t ow = 0, oh = 0; gsHwOutputOverride(ow, oh)) // [gta-recomp] the VR mod's render scale
+            {
+                windowW = static_cast<int>(ow);
+                windowH = static_cast<int>(oh);
+            }
             // the window's letterboxed area at an aspect, inside the game's frame as the presenter places it
             // ([gta-recomp] present::fitRect: a 4:3 menu sits in the frame, not over the window)
             auto letterbox = [&](float aspect, uint32_t &outW, uint32_t &outH) {
