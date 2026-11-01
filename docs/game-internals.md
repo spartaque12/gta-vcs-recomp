@@ -1281,6 +1281,65 @@ disassembler over it; Ghidra was not installed). VC's CShadows layout, at these 
   camera's rotation (`sceneView` in gs_hw.cpp; checked: the sun at noon comes out up and ahead with the camera facing
   north, at 17:00 to the left).
 
+### 6p. The water: CWaterLevel's draws (2026-11-01, RenderHook.asi water)
+
+Found for RenderHook.asi's new water: string cross-references in the ELF (a lui + addiu scan for the textures' names;
+Ghidra was not installed), F12 draw dumps of a frame at sea with each draw's source (`src=` in the draw log: the GIF
+path and VU1 program, `runtime/gs/gs_draw_source.h`), hidden runs with the player swimming off Downtown's quay at
+(-675, -75).
+- **Textures**: FUN_0026EA28 (CWaterLevel's initialisation) looks up `waterclear256`, `sand`, `waterreflection2`,
+  `waterwake` and `boatwake` (names at 0x4AFDE8 / F8, 0x4AFE00 / 18 / 28, txd `particle` 0x4AFDD8) with 0x346C80 and keeps
+  the RwTexture pointers at 0x4874CC / D4 / DC / E4 / EC, their rasters at 0x4874C8 / D0 / D8 / E0 / E8. The water is
+  drawn by FUN_0026F550 (2472 bytes) and FUN_002705C8 (3668 bytes), which read those rasters (0x26F60C, 0x26FD70;
+  0x27096C, 0x271204 ... and `waterreflection2` at 0x271344); constants 128, 400, 2048 as in VC's CWaterLevel. The
+  level and the waves' heights: 6q.
+- **How it reaches the GS**: as re-draws of VU1 program **0x02C0** (the float path, reproduced in C++ by
+  `game/vcs_hle_world.cpp` `drawNativeRedraw`), so in the renderer they are GS-path draws already in screen space - no
+  world mesh to displace. Each near tile is drawn twice at the same depth: the `waterclear` layer (128x128, blended
+  `(Cs - Cd) FIX + Cd` at FIX 100, ~78% water over what is behind, alpha not written) and a 64x64 overlay added by its
+  vertex alpha (`Cs As + Cd`, alpha 0x00-0x3F); the far strip to the horizon once at FIX 127 with alpha written. All with
+  ZTST GEQUAL and **Z writes**, fogged, vertex colour = the timecycle's water tint (noon 0x14 0x41 0x42, alpha 0xC8;
+  23:00 0x05 0x06 0x06). The texture keys change between runs and hours (the texture is rebuilt), the program and the
+  blend do not; 0x02C0's other use, the shine pass of environment-mapped props, blends otherwise.
+- **The frame's order** around it: the world (native), an alpha-only full-screen quad (FBMSK 0xFFFFFF), **the water
+  draws in one run** (98 tiles x 2 + the strip, off the quay), then the sky's self-copy 140 -> 140 (which ends the run),
+  the reflection map, peds and vehicles. The renderer's water hook points (gs_hw.cpp `waterStep`, mod API
+  `VCS_RENDER_BEFORE_WATER` / `AFTER_WATER`) are put around that run.
+- **The seabed is drawn**: under the sea off the quay the world has a muddy floor and the bridge's piers; the water's
+  Z writes hide it in the Z buffer (RenderHook.asi copies the Z buffer before the water to know the depth behind it).
+
+### 6q. The water level, the sea's waves, beaches and pools (2026-11-01, RenderHook.asi shore / caustics)
+
+Found from the generated code (no Ghidra project): the cars-in-water function FUN_00138B68 calls FUN_00369450 (VC's
+`cBuoyancy::ProcessBuoyancy`), which asks FUN_0026EE50 for the level under the vehicle.
+- **`CWaterLevel::GetWaterLevel(x, y, z, float *level, bool)` = 0x26EE50**: `*level` = 6.0 to start; outside x
+  -2400..1600, y -2000..2000 it stops there (open sea at 6.0). Inside, a **128 x 128 grid of 32 m cells**:
+  xc = (x + 2448) / 32, yc = (y + 2048) / 32 (cvt.w.s, truncating), a byte at `*(0x4874C0) + 0x100C + yc + xc * 128`;
+  0x80 = no water there (the function returns without a level), else an index into a float table at
+  `*(*(0x4874C0) + 4)`. Then the waves' height is added (below). With the bool clear it also answers "no water" when
+  the level is more than 50 m above z. Dumped 2026-11-01 (rig peeks, `build/analysis/water/grid.png`): the table has
+  **one level, 6.0** - the whole map's water is one plane; 4712 of the 16384 cells are land (x -1840..912, y
+  -1728..1600). Swimming / a vehicle in the sea measure 5.9-6.0.
+- **The sea's waves**: FUN_0011AEC8(*(0x487504), x, y, &fx, &fy, corners[4]) finds the four vertices around (x, y) in a
+  **17 x 17 tile of vertices 2 m apart that repeats every 32 m**; GetWaterLevel adds their heights bilinearly. The
+  tile is double-buffered: the byte at +0 picks the buffer, buffers of 0x1F9C bytes (289 x 28) from +0x14; a vertex
+  holds the normal at +4..+0xC, its x / y in the tile (0..32) at +0x10 / +0x14 and the height at +0x18. Measured (the
+  east beach, clear and rainy weather alike): heights -0.12..+0.15 m, normals within 0.04 of up - small, gentle waves.
+- **Beaches**: the sea's mesh runs on under the sand; the waterline is simply where the sand crosses z 6.0 (the east
+  beach of the Beach island, x ~850-910 for y -500..1100). Shore foam and swash can therefore be placed from heights
+  alone: the ground's world z against 6.0. Profiles measured from the Z buffer before and after the water (RenderHook
+  `rhshore view 2`, the screen's centre column, 2026-11-01): at (862, -300) the sand is a flat terrace 8.5 m above the
+  water, falls ~1:4 to it and the seabed drops ~5 m within the first ~8 m, then ~1:5 (D 7.4 m ~18 m out, 11 m ~38 m
+  out); at (870, 600) ~1:15 above and below the waterline (D 3 m ~14 m out, 8 m ~90 m out). The game's sea polygon
+  ends a little short of the 6.0 contour on gentle beaches (a strip of sand up to ~0.3 m below the level stays bare,
+  its edge moving with the wave tile) and has straight, jagged edges in places.
+- **Pools are not water**: no second level exists, and a mansion pool on Starfish Island (about (-494, -430), the
+  surface near z 10.5) is part of the world's own draws (native, prelit), a flat blue animated texture - not
+  CWaterLevel's sea draws, so a water mask built from those (6p) does not include it. Its texture already carries
+  light lines; before the post effects it reads ~(0.20, 0.38, 0.45) at noon, which RenderHook's pool caustics test for.
+- **TheCamera's position** (`0x6F44D0 + 0x30`, 12b) is the camera in game world coordinates for anything that needs
+  absolute heights (the water plane) - the renderer's own `camera_position` has an origin of its own.
+
 ## 7. Textures: `.XTX`
 
 **Host replacement identity (2026-10-31).** PCSX2 packs match the GS texture as it is sampled, rather than the RAM
@@ -3019,6 +3078,45 @@ the ELF (build/elf: by weapon at 0x4A9BB0, 48 entries; by piece at 0x4A9C70, 7),
   piece 0); setting off: head hits did 25, now and then one killed (the game's own 1 in 16). Aim: the head piece is the
   sphere around ped z + 0.65 - 0.8 (z + 0.62 at 4 m hit the shoulder / arm, piece 3, with the Uzi's lower eye).
   "Everyone" (an NPC's head shot on Vic) was not run.
+
+
+### 12x. What is in the water - boats, swimmers, splashes (RenderHook.asi wakes, 2026-11-01)
+
+Found for the wake simulation (VCS-mods `plugins/RenderHook/src/water_sim.cpp`, docs/RENDERHOOK_PLAN.md "Water") with the
+rig on a copy of the user's card (hidden runs, the sea at (-700, -100)) and the generated code.
+- **Vehicle model ids and kinds**: model info `*(0x486518)[id]`, +0x54 type (as vehicle +0x354), +0x158 text key. Boats
+  (type 1): 185 SPEEDER2, 214 REEFER, 215 SPEEDER, 219 PREDATR, 225 YOLA, 247 DINGHY, 248 MARQUIS, 249 RIO, 250 TROPIC, 257
+  SQUALO, 258 JETMAX, 264 SCARAB, 277 COASTG, 278 SKIMMER; 233 JETSKI type 2; 198 HOVER type 5. Listed by walking ids 170 -
+  280 and reading both fields.
+- **In the water: entity byte +0xED bit 0** (the 32-bit word at +0xEC, bit 8), the same for peds, cars and boats: found by
+  diffing a ped's 0xD20 bytes standing on land and swimming (`+0xEC 0x00520002 -> 0x04520102`), then checked on a Speeder
+  on the beach (0x1F340022) and in the sea (0x1F340122), a Sentinel on land (0x002700E2) and dropped in (0x276503F2). The
+  game sets it already **over** water: a Sentinel created 6 m above the sea had it in its first frame, another dropped
+  from 14 m got it only a few frames after reaching the water (z 10.2 -> 5.7, speed -14 -> -4 m/s). Use it with the
+  water's level (below) for "touching the water". The word at +0x134 also changes (land 0x02010000 / 0x02000A00,
+  swimming 0x23000000, car in the water 0x05000000, a boat 0) - not needed.
+- **Swimming** is no ped state (+0x8C4 stays 1); a swimming ped's +0x30 z is ~5.9 - 6.0 at sea and **its move speed
+  (+0x140) stays 0** while it swims (the animation moves it): its speed comes from its position over frames (~2 m/s
+  swimming forward). Peds in a vehicle (+0x480 non-zero) are left out: the vehicle makes the wake.
+- **Vehicles' move speed +0x140 x 50 = m/s** holds for boats: a Speeder held at full throttle reached 0.56 (28 m/s).
+- **CWaterLevel::GetWaterLevel = FUN_0026EE50**(x f12, y f13, z f14, float *level a0, bool dontCheckZ a1) -> found:
+  `*level = 6.0` and true outside x -2400..1600 / y -2000..2000; else the table `*(0x4874C0)`: byte cells at +0x100C,
+  index ((x + 2448) / 32) * 128 + (y + 2048) / 32 (32 m cells; 0x80 = no water there), the level = float `*(table + 4)
+  [cell]`, plus the waves (FUN_0011AEC8 gives the bilinear weights over four wave samples at +0x18). Without
+  dontCheckZ, false when the water is 50 m above z, and with z above 2.46 one box (x -212..-110, y -1451..-1330) is cut
+  out. Read from its generated code (31 callers: the buoyancy FUN_00369450 among them). The sea reads 6.0.
+- **The shot's water test = FUN_002C3CE8**(?, &start a1, &end a2, CColPoint *out a3, earlier hit t0): when the line goes
+  from above z 6.2 to below it (and an earlier hit is below the water), GetWaterLevel at the crossing; on water the
+  colpoint becomes that point with surface 0x13 (water) and it returns 1. Callers: FUN_002C3E48 (the instant-hit fire,
+  1300 instructions) and FUN_002CB1D0. Not checked at run time: shooting down into the water from a hidden run did not
+  happen (the player teleported onto a boat's deck slid into the water; swimmers cannot shoot).
+- **CExplosion::AddExplosion = FUN_002E1140**: a2 the type, **a3 a pointer to the position** (x, y, z read at 0, 4, 8);
+  the script's ADD_EXPLOSION (0x013C, x y z type) at the water's level reached it (checked: one splash).
+- **TheCamera's matrix** (0x6F44D0: right +0, forward +0x10, up +0x20, position +0x30) gives the camera the game thread
+  has; the wake field is placed with it (its frame's renderer camera can be up to three frames behind, so entities are
+  taken relative to the camera of their own snapshot).
+- **CGame::Process (FUN_003BA8D8)** is where RenderHook.asi reads the pools once a game frame (before the original:
+  the last frame's world and camera, processed together).
 
 ## 13. Open questions / next research targets
 

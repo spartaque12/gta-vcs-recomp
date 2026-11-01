@@ -93,11 +93,16 @@ namespace vcs::modapi::render
             std::memcpy(f.world_to_view, v.worldToView, sizeof(f.world_to_view));
             f.position_valid = v.positionKnown ? 1 : 0;
             std::memcpy(f.camera_position, v.cameraPosition, sizeof(f.camera_position));
+            f.point = v.point == GSHwHookBeforeWater  ? VCS_RENDER_BEFORE_WATER
+                      : v.point == GSHwHookAfterWater ? VCS_RENDER_AFTER_WATER
+                                                      : VCS_RENDER_BEFORE_POST;
+            std::memcpy(f.water_rect, v.waterRect, sizeof(f.water_rect));
+            std::memcpy(f.water_color, v.waterColor, sizeof(f.water_color));
             g_device = v.device;
             g_view = &v;
             for (const Hook &h : g_hooks)
             {
-                if (h.point != VCS_RENDER_BEFORE_POST)
+                if (h.point != f.point)
                     continue;
                 h.fn(h.user, &f);
                 if (g_inPass)
@@ -112,7 +117,7 @@ namespace vcs::modapi::render
 
         int apiAddHook(int point, VcsRenderHookFn fn, void *user, uint32_t flags)
         {
-            if (point != VCS_RENDER_BEFORE_POST || !fn)
+            if ((point != VCS_RENDER_BEFORE_POST && point != VCS_RENDER_BEFORE_WATER && point != VCS_RENDER_AFTER_WATER) || !fn)
                 return 0;
             g_hooks.push_back({point, fn, user, flags});
             g_needs |= flags;
@@ -125,6 +130,9 @@ namespace vcs::modapi::render
                 needs |= GSHwFrameHookVelocity;
             if (g_needs & VCS_RENDER_NEEDS_SHADOW)
                 needs |= GSHwFrameHookShadow;
+            for (const Hook &h : g_hooks)
+                if (h.point == VCS_RENDER_BEFORE_WATER || h.point == VCS_RENDER_AFTER_WATER)
+                    needs |= GSHwFrameHookWater;
             gsHwSetFrameHook(&frameHook, nullptr, needs);
             return 1;
         }

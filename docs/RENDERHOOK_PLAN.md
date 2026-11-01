@@ -217,6 +217,156 @@ texture is the ped, car or bike one; helicopter / RC shadows, the explosions' li
 (`VCS_RH_BLOB_SHADOWS`); `rhblobs` reports dropped / passed; `VCS_RH_BLOB_HOOKS=0` hooks nothing; `VCS_RH_BLOB_LOG=1`
 logs the first calls. Checked (`build/aotest/rh_blob3`): with AO on, the blob under the player gone in Auto, back in Shown.
 
+## Water, stage 1: the surface and the foundation (2026-11-01)
+
+The user asked for water like ImmersiveVC (GTA VC, D3D11: ocean, shore waves, interactive waves, sun glitter, SSR and
+probe reflections, caustics); its shaders are encrypted and stay so - a clean-room build from standard techniques, its ini
+read only as a feature list. Three stages: 1 the surface and the shared foundation (this section), 2 shore waves, foam and
+caustics, 3 wakes (below).
+- **How the game draws water** (game-internals.md 6p): CWaterLevel's tiles as re-draws of VU1 program 0x02C0 (natively
+  reproduced), GS-path draws in screen space blended over the world with Z writes, after the world and before the sky's
+  self-copy, the reflection map, peds and vehicles; the vertex colour is the timecycle's water tint.
+- **Renderer** (gs_hw.cpp `isWaterDraw` / `waterStep` / `runWaterHook`, `GSHwFrameHookWater`, `GSHwFrameView.point /
+  waterRect / waterColor`): a draw is water when its source is program 0x02C0, into the scene's picture and Z buffer, Z
+  test GEQUAL with Z writes, textured, blended `(Cs - Cd) FIX + Cd` or `Cs As + Cd`. Before the first draw of a run the
+  hook runs at "before water", after it (the next command that draws anything else) at "after water" with the run's
+  bounds and the first vertex's colour. Measured: one run a frame (the sky's self-copy ends it); before the overlay
+  layer was recognised every tile was a run of its own (~200 a frame).
+- **API** (appended to API 1; an older vcs.exe refuses the points): `VCS_RENDER_BEFORE_WATER` / `VCS_RENDER_AFTER_WATER`,
+  `VcsRenderFrame.point`, `water_rect[4]`, `water_color[4]` (MODDING.md "Rendering"). Camera, lens, Z mapping, fog and
+  `world_to_view` as at BEFORE_POST; no velocity, reprojection or shadow maps there.
+- **The mod** (`src/water.cpp`, `src/water.h`, `shaders/water.hlsl`): before the water the picture and the Z buffer are
+  copied (RGBA8, R32F as it is); after it `ps_info` marks the water's pixels (the Z buffer nearer than before) with the
+  surface's and the seabed's view depths (RGBA16F), stage 2's `extras` (RGBA8: foam, extra slope, caustic light) is
+  cleared and stage 2's passes run (`water::addPrepare`), then `ps_water` draws the surface over the game's water inside
+  its bounds: per pixel the world point (view depth, lens, R^T, the camera from TheCamera at 0x6F44D0 + 0x30); waves =
+  10 directional sine waves (wavelengths 0.47-23 m around a wind direction, deep-water dispersion, each faded out under
+  ~4 pixels per wavelength) summed as slopes, plus stage 2's slope and stage 3's wake field (x2); refraction of the
+  seabed copy shifted by the slope, absorbed by the water's thickness along the view ray towards the game's tint (x1.25:
+  the texture's mean; at least 30% tint at any depth - the game's water is milky, a swimmer's legs stay veiled); Schlick's Fresnel (F0 0.02); screen-space reflections of the copy before the water (24 growing
+  steps against its depth, 4 refinements; missed rays take the picture's edge where the ray heads, mostly the sky);
+  the sun (the timecycle's ring, game-internals.md 6n) as glitter (Blinn-Phong exponent 3000) and a faint path (400),
+  coloured towards orange as it sets, by daylight; foam whitens; the game's fog blends back to the game's own water far
+  away. Peds, vehicles and particles are drawn after it as before.
+- **Settings**: Graphics > Water (RenderHook): Water Off (original) / Calm / Normal / Rough (`renderhook.water`,
+  `VCS_RH_WATER`), Water reflections Off / Low / Normal / High (`renderhook.water_reflections`), Sun glitter Off / Low /
+  Normal / High (`renderhook.water_glitter`). Debug: `VCS_RH_WATER_VIEW=1` mask and depth (blue = thickness to 20 m,
+  cyan = sky behind), `2` normals, `3` reflection hits (red = the edge fallback), `4` the copy before the water; command
+  `rhwater [view N | level N]`.
+- **Checked** (`python tools/water_check.py --asi ... --exe build\water_exe\vcs.exe`, hidden, a copy of the user's card,
+  1280x720, swimming off the quay at (-675, -75) towards the quay and out to sea, 12:00 / 17:00 / 23:00, original vs new:
+  `build/water/final`, side by side `shore_compare.jpg`, `sea_compare.jpg`): waves move, the quay, the bridge and the sky
+  are mirrored, the shallows show the seabed, the night water stays dark with lit windows reflected, the 17:00 sun
+  glitters. GPU (`PS2X_GPU_TIMING=1`, RTX 4070 Ti SUPER, 1280x720, per drawn game frame): before 0.05-0.1 ms, after
+  0.25-0.42 ms (half that per host frame at 60 Hz). The mod's shaders compile to DXBC and SPIR-V; the renderer's
+  libraries build with `VCS_RHI_VULKAN=ON` (`build/vk_check`); not run on Vulkan.
+- **Not done / known**: no vertex displacement (the game hands the water over already projected); reflected coronas not
+  (they are drawn after the water - a later pass at BEFORE_POST could add them); SSR misses what is off screen (no
+  probe / cube map yet: the edge fallback); the swimmer's legs under the surface stay as the game draws them (peds come
+  after the water); pools are the world's own draws (game-internals.md 6q), not in the mask: the surface leaves them as they are (stage 2
+  finds them by their look for its caustics).
+
+## Water, stage 2: shore foam, shore waves, caustics (2026-11-01)
+
+Clean-room like stage 1 (ImmersiveVC's ini a feature list only). Everything comes from heights: the game's water is one
+plane at z 6.0 and the sea's mesh runs on under the sand (game-internals.md 6q), so the seabed's depth below 6.0 - from
+stage 1's `info.z` turned into the world with the lens, R^T and TheCamera - says how near the shore a water pixel is, and
+a land pixel's height above 6.0 where the waves run up. No map of beaches is needed.
+- **Inside stage 1's water hook** (`water::addPrepare`; `src/water_shore.cpp`, `shaders/water_shore.hlsl`), two passes:
+  - `ps_shore_extras` into stage 1's `extras` over the water's bounds (opaque, all four channels): **foam** (r) - a band
+    along the waterline (seabed depth D < 0.2-0.45 m, broken up by two octaves of noise), the breaking crests and the foam
+    they trail towards the shore; the **shore waves' slope** (g / b) - crests are lines of equal D moving shorewards,
+    phase sqrt(D) / 0.5 + t / 7 s plus a slow noise warp (crests at D 0.25, 1, 2.25, 4, 6.25, 9 m; sqrt because VCS's
+    beaches drop steeply: measured 5 m down within ~8 m of the waterline at (862, -300), ~1:15 at (870, 600)), growing
+    in towards a breaking depth of 1 m, a steep face towards the shore, the slope from the crest profile times the
+    gradient of D across the seabed (the pixel quad's derivatives, a 2 x 2 solve); **caustics** (a) - two layers of
+    animated Voronoi cell borders on the seabed point moved along the sun's refracted way by D, faded in over the first
+    0.15 m and out with exp(-D / 3 m), times daylight. Stage 1's surface whitens with the foam, adds the slope to its
+    waves and brightens the seabed by the caustics.
+  - `ps_shore_swash` into the picture over the whole frame (alpha blend, land pixels only: `info.x` 0), before stage 1's
+    surface and before peds and vehicles: the **run-up** - each wave reaching the waterline (the same phase at D = 0)
+    sends a thin sheet up the sand to 0.6 m above the level (a quick rise, a slow fall back), a foam line at its edge, the
+    sand darker below the highest reach; only on level ground (the normal from depth, N.z > 0.75) and faded by the fog
+    and over 150-320 m. It also covers the strip of sand just below 6.0 that the game's sea leaves bare.
+- **Pools** (no water to the game: the world's own draws, game-internals.md 6q): a BEFORE_POST hook of their own,
+  `ps_pool_caustics` (additive): pixels that look like pool water - a saturated cyan-blue (measured ~(0.20, 0.38, 0.45)
+  at noon), agreed by four neighbours 6 px away, on level ground (N.z > 0.93) at least 0.6 m above the sea - get the
+  caustic pattern in their own blue. The picture is copied first (without MSAA `render_current_color` is the target
+  itself and reads as black while drawing into it). A blue car roof seen from above could pass the test; a mask from
+  the pools' texture in the renderer would be exact (not done).
+- **Settings**: Graphics > Water (RenderHook): Shore foam Off (original) / Subtle / Normal / Heavy
+  (`renderhook.shore_foam`, `VCS_RH_SHORE_FOAM`), Shore waves Off / On (`renderhook.shore_waves`, `VCS_RH_SHORE_WAVES`),
+  Caustics Off / Subtle / Normal / Strong (`renderhook.caustics`, `VCS_RH_CAUSTICS`; the sea's shallows and pools), all
+  off by default; foam, waves and the sea's caustics show with the new water on (stage 1's hook), the pools' on their
+  own. Debug: `VCS_RH_SHORE_VIEW=1` / `rhshore view 1` (after the surface: on the water the seabed depth in 0.5 m bands,
+  crests red, foam white, caustics yellow; on land the height above the level in 0.1 m bands, blue below it, green up to
+  the run-up's reach, orange above), `rhshore view 2` (numbers as colours: r = D / 20 m, g = view depth / 200 m, b =
+  (height + 2 m) / 20 m - how the beach profiles above were measured), `rhshore poolview 1` (the pool test: colour red,
+  neighbours green, level ground blue; `2` the picture as read); `rhshore` reports frames, the water's bounds, the camera
+  and daylight.
+- **Checked** (hidden runs from a private copy of stage 1's vcs.exe, a copy of the user's card, 1920x1080, the free
+  camera over the east beach at (870, 600) looking east and over the Starfish Island pool at (-494, -430), 12:00 and
+  17:00; original / new water / new water + stage 2 at Normal: `build/watershore/final`, side by side
+  `compare_beach_12.png`, `compare_beach_17.png`, `compare_pool_crop.png`; the tuning shots `build/watershore/try8`):
+  breaking foam bands and the waterline's foam, the wet sheet running up and the wet sand behind it, caustics in the
+  shallows and the pools, softer at 17:00; the same with MSAA 4x (`build/watershore/msaa`). GPU (`PS2X_GPU_TIMING=1`,
+  RTX 4070 Ti SUPER, 1080p, per drawn game frame): "renderhook shore" (both passes) 0.21-0.62 ms, median 0.39;
+  "renderhook pool caustics" (copy + pass) 0.11-0.34 ms, median 0.15. The shaders compile to DXBC (fxc) and SPIR-V
+  (glslang, the Vulkan build); not run on Vulkan.
+- **Not done / known**: the game's sea polygon has straight, jagged edges on some beaches (its own mesh) and the foam
+  follows them; the crests follow the seabed's contours, so a ragged seabed gives ragged crests; the run-up ignores what
+  stands on the sand (a ped's feet in its reach get the sheet's tint); the pool test is by look (above); the shore pass is
+  the costlier part (noise and Voronoi per shallow-water pixel) - the caustics could run at half resolution.
+
+## Water, stage 3: wakes and ripples (2026-11-01)
+
+The user asked for water like ImmersiveVC (GTA VC, D3D11); its shaders are encrypted and stay so - this is a clean-room
+build from standard techniques, the mod's ini read only as a list of features (WaterPhysics grid, wake, damping, foam
+make / life). Stage 1 (the surface, `src/water.cpp`) and stage 2 (shore foam, caustics) are their own sections; this
+one is the interactive part: a height-field simulation the surface adds to its waves.
+- **The game side** (game-internals.md 12x): a hook before CGame::Process (FUN_003BA8D8) reads TheCamera's matrix, the
+  game clock and both pools once a game frame: vehicles and peds with the in-water bit (+0xED bit 0) near the water's
+  level (CWaterLevel's table, read on the host as GetWaterLevel does), with position, heading, speed (vehicles +0x140,
+  swimmers from their positions: their move speed is 0) and kind. Splashes: an entity entering the water (its fall speed
+  kept from before the game sets the bit), swim strokes (a ring every 0.75 s moving, 1.8 s treading water), explosions
+  (a hook before CExplosion::AddExplosion, within 4 m of the level) and bullets (the shot's water test FUN_002C3CE8,
+  done again on the host before the original).
+- **The simulation** (`src/water_sim.cpp`, `shaders/water_sim.hlsl`): a damped wave equation (c 7 m/s, velocity damping
+  e-folding 1.1 s, the height relaxing to the level over ~3 s, an absorbing border) in two RGBA16F states (height, last
+  height, foam) of 256 x 0.5 m (On) or 512 x 0.375 m (High detail), in **the game's world coordinates** around the
+  camera, scrolled by whole texels; the game's time (CTimer, standing still in the pause menu) in fixed 1/60 s steps, at
+  most 4 a frame. Sources per step (up to 32, nearest first): hulls as capsules along the heading (boat 7 x 2.6 m,
+  jetski, car, bike, swimmer, deeper with speed) pressing the water down and swept from the last step's place to this
+  one (a 28 m/s Speeder leaves a continuous V); splashes as gaussian dips that ring outwards. Foam from the hulls with
+  speed, from fast vertical motion, spread a little, ~3 s life. Then the output: slope x / y, height, foam, faded to 0
+  at the border.
+- **Not the renderer's tracking frame** (camera_position): it needs VCS_RENDER_NEEDS_SHADOW and starts over where few
+  static world meshes are drawn - the open sea. The game's camera from the same snapshot as the entities places them
+  relative to it, so the player's boat sits under its own wake although the game thread runs up to three frames ahead.
+- **The interface** (`src/water_sim.h`, agreed with stage 1): `wakeField(frame)` steps once per snapshot however often it
+  is called and returns `WakeField {texture, size, cam_x, cam_y, water_z}`; a water pixel's d = R^T v (R =
+  world_to_view) samples it at uv = 0.5 + (d.x + cam_x, -(d.y + cam_y)) / size. Stage 1's surface calls it at
+  VCS_RENDER_AFTER_WATER (texture slot 4, linear).
+- **Settings**: Graphics > Water (RenderHook) > "Wakes and ripples" Off (original) / On / High detail
+  (`renderhook.wakes`, `VCS_RH_WAKES`). Debug: `VCS_RH_WAKE_VIEW=1` the field in a corner (height blue down / red up, slope,
+  foam white, the camera yellow), `2` a stand-in shading of pixels at the water's level with the field's normal and
+  foam (until stage 1's surface shows it), `3` both; `rhwake [view N | wakes N | splash X Y R D]` reports the snapshot
+  (in-water boats / swimmers / others, splashes entered / bullets / explosions) and the steps; `VCS_RH_WAKE_HOOKS=0`
+  hooks nothing.
+- **Checked** (hidden runs from `build\wake_exe`, a copy of the user's card, the channel at (-700, -100), 13:00, D3D11):
+  swimming (strokes ring, the stand-in shows them faintly), a Speeder at full throttle (17 -> 28 m/s): a narrow V wake
+  with a foam trail behind it, the field following; coasting, the wake fades and relaxes; a Sentinel dropped from 14 m
+  (one splash, -14 m/s), ADD_EXPLOSION at the level (one splash ring). Shots in `build/wakes/d4 .. d7` (`*_v0` the
+  game, `_v1` the field, `_v3` both debug views). With stage 1's surface (`VCS_RH_WATER=2`, its vcs.exe with
+  AFTER_WATER, `build/wakes/d8`): the Speeder's V and foam trail drawn into the water's normals and foam, fading as it
+  coasts; a swimmer's strokes are hard to see under the surface's own waves and reflections. GPU (`PS2X_GPU_TIMING=1`, RTX 4070 Ti SUPER, marker "renderhook wakes":
+  every step + the output pass): 0.01 - 0.035 ms a frame at 256, 0.01 - 0.055 ms at 512. The shaders compile to DXBC and
+  SPIR-V (glslang, the Vulkan build); not run on Vulkan.
+- **Not done / known**: bullets not seen at run time (no shot into the water from a hidden run); the field knows no shore
+  (waves run under land, unseen; the 32 m water cells could damp them); the wave speed is one for all wavelengths (no
+  dispersion: the V is narrower than a Kelvin wake's 19.5 degrees at high speed); off-screen and far entities beyond the
+  field (64 / 96 m) make nothing.
+
 ## Next
 
 2. Sun shadows step 2: alpha-tested casters (palm leaves) with their textures, the game's blob shadows optional, weather.

@@ -198,6 +198,22 @@ struct GSHwFrameView
     // the static world meshes seen before and now off screen, placed in this frame.
     bool positionKnown = false;
     float cameraPosition[3] = {};
+    // [gta-recomp] Where the hook runs (GSHwFrameHookWater adds two points around the game's water draws - VU1 program
+    // 0x02c0's re-draws with the blend (Cs - Cd) FIX + Cd and Z writes, after the world, before the sky's self-copy, the
+    // reflection map and the peds / vehicles; game-internals.md 6p): GSHwHookScene after the 3D scene (as above),
+    // GSHwHookBeforeWater right before the first water draw (the picture and Z buffer without the water), GSHwHookAfterWater
+    // right after the last (with it; waterRect = the water draws' bounds in target pixels x0, y0, x1, y1, clamped to the
+    // picture). At the water points velocity, reprojection and shadow maps are not offered.
+    uint32_t point = 0;
+    int waterRect[4] = {};
+    float waterColor[4] = {}; // the first water draw's vertex colour (RGBA, 1 = the PS2's 0x80): the timecycle's water tint
+
+};
+enum : uint32_t
+{
+    GSHwHookScene = 0u,
+    GSHwHookBeforeWater = 1u,
+    GSHwHookAfterWater = 2u,
 };
 using GSHwFrameHookFn = void (*)(void *user, const GSHwFrameView &view);
 enum : uint32_t
@@ -206,6 +222,7 @@ enum : uint32_t
     GSHwFrameHookResolvedColor = 2u, // the picture is read: a resolved copy with MSAA
     GSHwFrameHookVelocity = 4u,      // per-object motion: the scene's native draws again with their last-frame matrices
     GSHwFrameHookShadow = 8u,        // shadow maps: the scene's opaque native draws are kept for GSHwFrameView::shadowMap
+    GSHwFrameHookWater = 16u,        // [gta-recomp] the hook also runs before and after the game's water draws (point)
 };
 // [gta-recomp] Sets the frame hook (one; nullptr = none) and what it reads (GSHwFrameHook*). Main thread.
 void gsHwSetFrameHook(GSHwFrameHookFn fn, void *user, uint32_t needs);

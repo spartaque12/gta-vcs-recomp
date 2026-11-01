@@ -747,11 +747,11 @@ namespace
             fogMin = std::min<uint32_t>(fogMin, static_cast<uint32_t>(v.fog * 255.0f));
         }
         std::fprintf(stderr,
-                     "[draw] n=%u fbp=%u zbp=%u zte=%u ztst=%u zmsk=%u tme=%u tex(psm? key=%llx %ux%u rt=%u) tfx=%u tcc=%u abe=%u blend=%u%u%u%u fix=%u ate=%u atst=%u aref=%u afail=%u fge=%u fogMin=%u fogCol=%u,%u,%u fbmsk=%x prim=%u iip=%u fst=%u lin=%u wrap=%u,%u bounds=(%.0f,%.0f)-(%.0f,%.0f) z=%.8f..%.8f rgbaOr=%08x sc=%u,%u-%u,%u\n",
+                     "[draw] n=%u fbp=%u zbp=%u zte=%u ztst=%u zmsk=%u tme=%u tex(psm? key=%llx %ux%u rt=%u) tfx=%u tcc=%u abe=%u blend=%u%u%u%u fix=%u ate=%u atst=%u aref=%u afail=%u fge=%u fogMin=%u fogCol=%u,%u,%u fbmsk=%x prim=%u iip=%u fst=%u lin=%u wrap=%u,%u bounds=(%.0f,%.0f)-(%.0f,%.0f) z=%.8f..%.8f rgbaOr=%08x sc=%u,%u-%u,%u src=%x\n",
                      d.count, s.fbp, s.zbp, s.zte, s.ztst, s.zmsk, s.tme, (unsigned long long)s.texKey, s.tw, s.th, s.texIsRt,
                      s.tfx, s.tcc, s.abe, s.ba, s.bb, s.bc, s.bd, s.fix, s.ate, s.atst, s.aref, s.afail, s.fge, fogMin,
                      s.fogR, s.fogG, s.fogB, s.fbmsk, s.mode, s.iip, s.fst, s.linear, s.wms, s.wmt, x0, y0, x1, y1, z0, z1, rgbaOr,
-                     s.scx0, s.scy0, s.scx1, s.scy1);
+                     s.scx0, s.scy0, s.scx1, s.scy1, d.source); // [gta-recomp] src: gs_draw_source.h (path, native, VU1 program)
         if (s.texIsRt) // [gta-recomp] which render target a frame copy / screen effect reads, and where in it
             std::fprintf(stderr, "[draw]   src rt fbp=%u at %u,%u tex %ux%u tbw? st=(%.1f,%.1f)\n", s.rtFbp, s.rtOx, s.rtOy, s.tw, s.th,
                          d.count ? f.vertices[d.first].s : 0.0f, d.count ? f.vertices[d.first].t : 0.0f);
@@ -856,6 +856,9 @@ namespace
             for (size_t ci = 0; ci < f.cmds.size(); ++ci)
             {
                 const Cmd &c = f.cmds[ci];
+                // [gta-recomp] the frame hook's water points (GSHwFrameHookWater): before / after the game's water draws
+                if (m_scene.armed && (g_frameHookNeeds.load(std::memory_order_relaxed) & GSHwFrameHookWater))
+                    waterStep(f, c, logDraws);
                 // [gta-recomp] the frame hook's point (gsHwSetFrameHook): after the 3D scene, before its post effects
                 if (m_scene.armed || m_scene.done)
                     sceneStep(f, c, logDraws);
@@ -1010,8 +1013,10 @@ namespace
                 {
                     const NativeDrawCmd &n = f.nativeDraws[c.index];
                     if (logDraws)
-                        std::fprintf(stderr, "[draw] native kind=%u n=%u mesh=%016llx fbp=%u zbp=%u tme=%u abe=%u fge=%u\n", n.kind, n.drawCount,
-                                     (unsigned long long)n.meshKey, n.s.fbp, n.s.zbp, n.s.tme, n.s.abe, n.s.fge);
+                        std::fprintf(stderr, "[draw] native kind=%u n=%u mesh=%016llx fbp=%u zbp=%u tme=%u tex=%llx abe=%u fge=%u w=(%g %g %g %g)\n",
+                                     n.kind, n.drawCount, (unsigned long long)n.meshKey, n.s.fbp, n.s.zbp, n.s.tme,
+                                     (unsigned long long)n.s.texKey, n.s.abe, n.s.fge, n.constants[3], n.constants[7], n.constants[11],
+                                     n.constants[15]);
                     hudSceneDraw(n.s.fbp);
                     sources.nativeDraw();
                     sceneNote(f, n); // [gta-recomp] the frame hook's 3D scene, camera and per-object motion
@@ -2096,6 +2101,7 @@ namespace
                 m_velSkinVerts.clear();
                 m_shadowDraws.clear();
                 m_shadowVerts.clear();
+                m_water.open = false; // [gta-recomp] waterStep: a run left open by the last frame
             }
             if (n.s.fbp != m_scene.fbp || n.s.zbp != m_scene.zbp)
                 return;
@@ -3134,6 +3140,130 @@ namespace
             return &e->readable(*e->m_hookRt);
         }
 
+        // [gta-recomp] The game's water (game-internals.md 6p): CWaterLevel's draws are re-draws of VU1 program 0x02c0
+        // (src/game/vcs_hle_world.cpp reproduces it) blended (Cs - Cd) FIX + Cd (FIX 100 near, 127 for the far strip) with
+        // a Z test GEQUAL and Z writes, into the scene's picture after the world; each near tile is drawn again with a 64x64
+        // overlay added by its vertex alpha (Cs As + Cd, alpha 0x00-0x3f) at the same depth. The program's other uses (the shine pass of
+        // environment-mapped props) blend otherwise.
+        bool isWaterDraw(const DrawCmd &d) const
+        {
+            const HwState &s = d.s;
+            return gsDrawSourcePath(d.source) == 1u && gsDrawSourceProgram(d.source) == 0x2C0u && s.fbp == m_scene.fbp &&
+                   s.zbp == m_scene.zbp && s.zte && s.ztst == 2u && !s.zmsk && s.abe && s.tme && !s.texIsRt && s.ba == 0u &&
+                   s.bd == 1u && ((s.bb == 1u && s.bc == 2u) || (s.bb == 2u && s.bc == 0u));
+        }
+
+        // Before a frame's first water draw of a run the hook's GSHwHookBeforeWater point; the next command that draws
+        // anything else (or ends the frame) runs GSHwHookAfterWater. Uploads and texture changes in between keep it open.
+        void waterStep(const Frame &f, const Cmd &c, bool log)
+        {
+            const bool water = c.type == CmdType::Draw && isWaterDraw(f.draws[c.index]);
+            if (water)
+            {
+                const DrawCmd &d = f.draws[c.index];
+                if (!m_water.open)
+                {
+                    m_water.open = true;
+                    m_water.x0 = m_water.y0 = 1e9f;
+                    m_water.x1 = m_water.y1 = -1e9f;
+                    if (d.count)
+                    {
+                        const HwVertex &v0 = f.vertices[d.first];
+                        m_water.color[0] = v0.r / 128.0f;
+                        m_water.color[1] = v0.g / 128.0f;
+                        m_water.color[2] = v0.b / 128.0f;
+                        m_water.color[3] = v0.a / 128.0f;
+                    }
+                    ++m_water.groups;
+                    runWaterHook(GSHwHookBeforeWater, log);
+                }
+                for (uint32_t i = 0; i < d.count; ++i)
+                {
+                    const HwVertex &v = f.vertices[d.first + i];
+                    m_water.x0 = std::min(m_water.x0, v.x);
+                    m_water.x1 = std::max(m_water.x1, v.x);
+                    m_water.y0 = std::min(m_water.y0, v.y);
+                    m_water.y1 = std::max(m_water.y1, v.y);
+                }
+                ++m_water.draws;
+                return;
+            }
+            const bool draws = c.type == CmdType::Draw || c.type == CmdType::NativeDraw || c.type == CmdType::HudDraw ||
+                               c.type == CmdType::Clear || c.type == CmdType::DepthFill || c.type == CmdType::RtDrop ||
+                               c.type == CmdType::RtUpload;
+            if (m_water.open && draws)
+            {
+                m_water.open = false;
+                m_water.closer = static_cast<uint32_t>(c.type);
+                runWaterHook(GSHwHookAfterWater, log);
+            }
+        }
+
+        void runWaterHook(uint32_t point, bool log)
+        {
+            const GSHwFrameHookFn fn = g_frameHook.load(std::memory_order_acquire);
+            auto it = m_rts.find(m_scene.fbp);
+            if (!fn || it == m_rts.end() || !it->second.color)
+                return;
+            Rt &rt = it->second;
+            endPass();
+            GSHwFrameView v;
+            v.point = point;
+            v.device = &m_dev;
+            v.color = rt.color.get();
+            const bool frameScale = m_frameScale.x > 0.0f && rt.scale == m_frameScale;
+            auto d = m_depth.find(m_scene.zbp | (frameScale ? 0x80000000u : 0u) | (rt.samples > 1u ? 0x40000000u : 0u));
+            if (d != m_depth.end() && d->second.tex && (d->second.tex->desc().usage & rhi::UsageSampled))
+                v.depth = d->second.tex.get();
+            v.width = std::min(px(640.0f, rt.scale.x), rt.color->desc().width);
+            v.height = std::min(px(448.0f, rt.scale.y), rt.color->desc().height);
+            const float o = pixelCentreOffset();
+            SceneLens lens;
+            v.camera = sceneLens(lens) && m_scene.depthMap;
+            v.fx = lens.fx * rt.scale.x;
+            v.fy = lens.fy * rt.scale.y;
+            v.cx = (lens.cx + o) * rt.scale.x;
+            v.cy = (lens.cy + o) * rt.scale.y;
+            v.depthA = m_scene.a;
+            v.depthB = m_scene.b;
+            v.depthScale = m_scene.zs;
+            if (m_scene.fog)
+            {
+                v.fogBias = m_scene.fogBias;
+                v.fogScale = m_scene.fogScale;
+            }
+            v.frame = m_scene.ran + 1u; // the frame the scene point will report
+            v.jitterX = m_jitter[0];
+            v.jitterY = m_jitter[1];
+            v.prevJitterX = m_prevJitter[0];
+            v.prevJitterY = m_prevJitter[1];
+            v.viewKnown = v.camera && sceneView(lens, v.worldToView);
+            if (point == GSHwHookAfterWater)
+            {
+                auto edge = [](float p, float scale, uint32_t limit) {
+                    return static_cast<int>(std::min<float>(std::max(p * scale, 0.0f), static_cast<float>(limit)));
+                };
+                v.waterRect[0] = edge(std::floor(m_water.x0 + o), rt.scale.x, v.width);
+                v.waterRect[1] = edge(std::floor(m_water.y0 + o), rt.scale.y, v.height);
+                v.waterRect[2] = edge(std::ceil(m_water.x1 + o) + 1.0f, rt.scale.x, v.width);
+                v.waterRect[3] = edge(std::ceil(m_water.y1 + o) + 1.0f, rt.scale.y, v.height);
+            }
+            std::copy(m_water.color, m_water.color + 4, v.waterColor);
+            m_hookRt = &rt;
+            v.currentColor = &RhiExecutor::hookCurrentColor;
+            v.currentColorCtx = this;
+            m_dev.pushMarker(point == GSHwHookBeforeWater ? "frame hook: before water" : "frame hook: after water");
+            fn(g_frameHookUser.load(std::memory_order_relaxed), v);
+            m_hookRt = nullptr;
+            m_dev.popMarker();
+            rt.dirty = true;
+            if (log)
+                std::fprintf(stderr, "[gs-hw] frame hook: %s water (%llu groups, %llu draws so far) rect %d,%d-%d,%d ended by %u\n",
+                             point == GSHwHookBeforeWater ? "before" : "after", static_cast<unsigned long long>(m_water.groups),
+                             static_cast<unsigned long long>(m_water.draws), v.waterRect[0], v.waterRect[1], v.waterRect[2],
+                             v.waterRect[3], m_water.closer);
+        }
+
         void runSceneHook(bool log)
         {
             m_scene.armed = false;
@@ -3675,6 +3805,16 @@ namespace
             uint64_t ran = 0, missed = 0, agreed = 0, kept = 0; // counts (PS2X_HW_FRAME_HOOK_LOG)
         };
         SceneHook m_scene;
+        // [gta-recomp] the water hook points (waterStep): a run of water draws open, its bounds (PS2 pixels), counts
+        struct WaterHook
+        {
+            bool open = false;
+            float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+            float color[4] = {};
+            uint32_t closer = 0; // the command type that ended the last run (the log)
+            uint64_t groups = 0, draws = 0;
+        };
+        WaterHook m_water;
         bool m_sampledDepth = false; // depth buffers are made sampleable (sampledDepth)
         // [gta-recomp] temporal AA (gsHwSetJitter, advanceJitter): this frame's and the last frame's offsets (target pixels)
         float m_jitter[2] = {0.0f, 0.0f}, m_prevJitter[2] = {0.0f, 0.0f};

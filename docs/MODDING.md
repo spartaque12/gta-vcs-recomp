@@ -67,7 +67,13 @@ What the table gives:
   multiply (target x output alpha), alpha, add; a write mask; the texture slots declared Texture2DMS),
   `render_begin_pass` / `render_set_viewport` / `render_set_pipeline` / `render_set_texture` (point or linear, clamped) /
   `render_set_constants` / `render_draw` / `render_end_pass`, and `render_push_marker` / `render_pop_marker` (GPU time
-  per marker with `PS2X_GPU_TIMING=1`). A pass or marker a hook leaves open is closed for it. The exe's side:
+  per marker with `PS2X_GPU_TIMING=1`). A pass or marker a hook leaves open is closed for it. Two more points around the
+  game's water (appended 2026-11-01; an older vcs.exe refuses them): `VCS_RENDER_BEFORE_WATER` right before its first
+  draw (the picture and Z buffer without the water: copy what you need) and `VCS_RENDER_AFTER_WATER` right after the
+  last (the water in the picture and the Z buffer: where the Z buffer is nearer than before, water is in front);
+  `VcsRenderFrame.point` says which, `water_rect` bounds the water (target pixels), `water_color` is the game's water tint
+  (the draws' vertex colour, 1.0 = 0x80). Peds, vehicles and particles come after AFTER_WATER; no velocity,
+  reprojection or shadow maps at these points (RenderHook.asi's water, RENDERHOOK_PLAN.md "Water"). The exe's side:
   `src/modapi/mod_render.cpp` over the RHI; the renderer's frame hook: NATIVE_RENDERER.md "Frame hook for render mods".
   VCS-mods' CMake has `vcs_mod_shader()` to build one HLSL source into both kinds of header. Temporal AA (appended,
   `VCS_MOD_API_HAS(api, render_set_jitter)`): `render_set_jitter(phases)` jitters the 3D picture; `VcsRenderFrame` then
