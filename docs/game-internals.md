@@ -3013,10 +3013,18 @@ place in the view's frame) and screenshots.
   parallel to the view. **The converted SA models' bores are not along the hand's x either**: measured in the game with
   a `vmbore left up` command (the bore's direction in the hand's frame, tangents) and an automatic check of each
   screenshot (the gun's pixels nearest the dot, their principal axis, the dot's distance from it, solved by secant):
-  Colt45 (-0.070, 0.075), Python (-0.025, -0.074), Shotgun (-0.110, 0.130), SPAS-12 (-0.300, 0), stubby (0, 0.160),
-  Tec9 (-0.067, 0.155), Uzi (-0.110, 0.030), silenced Ingram (VCS's model; 0, 0.080), MP5 (-0.060, 0.035), M4 (-0.086,
-  0.050), Ruger (-0.064, 0.042), flamethrower (0, 0.65), M60 (VCS's; 0, 0.30), minigun (-0.060, 0.45) - most a few
-  degrees right and up (SA's anims point them; the DFFs' slices agree on the sideways part only roughly). The hand is
+  Colt45 (-0.068, 0.144), Python (-0.008, -0.160), Shotgun (-0.118, 0.138), SPAS-12 (-0.18, 0.28), stubby (0.013,
+  0.189), Tec9 (-0.060, 0.061), Uzi (0.023, 0.130), silenced Ingram (VCS's model; 0.060, 0.264), MP5 (-0.046, 0.085), M4
+  (-0.092, 0.022), Ruger (-0.049, 0.031), flamethrower (0, 0.65), M60 (VCS's; 0, 0.30), minigun (-0.060, 0.45) - most a
+  few degrees right and up (SA's anims point them; the DFFs' slices agree on the sideways part only roughly). One place
+  pins only one direction (the line through the dot can still slide along itself), so each gun was solved at two: the
+  gun straight below the dot (the line vertical: the extrapolated row centres give the sideways miss) and straight right
+  of it (column centres: the vertical miss); the heavy guns only at the default place, by eye. **The F2 rows** (the
+  user's request, same day): per kind of gun (pistols, SMGs, rifles, shotguns, heavy) the right hand's place, right /
+  ahead / up in cm from the eyes (defaults the places above), and "w" = the roll about the barrel (degrees, + top to the
+  right) - a roll about the bore and any place keep the bore parallel to the view, so the dot holds; a yaw / pitch
+  pair would take it off. A reset row sets them back (the host's set_setting from the action: saved, on_change called).
+  Checked: each gun at its default place and moved 30 / 45 / -12 cm, rolled 35 degrees, the line on the dot. The hand is
   turned so the bore is parallel to the view, the gun's up kept: the whole pose lives in the view's frame, so one
   calibration holds at every pitch, yaw and while turning. Sway now moves the gun's place only (its turn would take the
   line off the dot) and the rest pose lowers it 4 cm and draws it 3 cm back without turning it (only the reload tips it).

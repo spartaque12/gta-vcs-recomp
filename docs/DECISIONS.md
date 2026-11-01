@@ -1417,3 +1417,7 @@ first-person mod, and asked for the viewmodel back with SA's arms and a gun that
   the mesh fits disagreed with each other, the screenshots are what the player sees. The table is per weapon type in
   viewmodel.cpp; a new gun model needs its own row.
 - Sway and the rest pose no longer turn the gun (the line would leave the dot); only reloading tips it.
+- **The F2 rows' "w" is the roll about the barrel** (asked for: x, y, z and w per kind of gun): a roll about the bore
+  keeps it parallel to the view, so the dot holds with any setting; a yaw / pitch pair would aim it off the dot and a
+  scale changes nothing a place cannot. Per kind of gun (pistols, SMGs, rifles, shotguns, heavy), absolute places in
+  cm with the SA-style defaults, the old all-guns offsets kept on top (a vcs.ini with them keeps working).
