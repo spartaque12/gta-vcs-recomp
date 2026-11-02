@@ -3031,7 +3031,15 @@ place in the view's frame) and screenshots.
   nothing is moved (the SA armed anims, the same walk / run / idle as third person); aiming, the viewmodel above (the
   per-gun place, roll and bore, SA's hands) eases in by the ADS share (200 ms up, 180 down; camera.fp_aim_eye). The
   viewmodel all the time stays choice 1. Checked: Colt45, Uzi, M4, Shotgun - status active 0 at rest and after letting
-  go, 1 aimed (level, up, down, turning), the barrel's line on the dot. The hand is
+  go, 1 aimed (level, up, down, turning), the barrel's line on the dot.
+- **The shot's flash at the drawn muzzle** (the user: the muzzle flash came out of the middle of the view): free aim
+  moves FireInstantHit's start onto the view's line (12d), and what follows reads that start - the first call after the
+  line of sight that takes it, **FUN_002EB720 (a0 start, a1 end; from 0x2C4F44 and FireInstantHit's other branches)**,
+  puts the white gun-smoke puff there, DoBulletImpact (FUN_002C6460, a3 source) the tracer. In first person the
+  viewmodel's muzzle (per gun: the converted models' front end in the hand's frame, the converter's offset added;
+  other guns 0.5 m along the bore) is written back into the start at the entry of either, after the trace (the hit
+  stays the dot's). Checked: M4, Uzi, Colt45, MP5 puff and tracer at the muzzle; the Shotgun's pellets keep their own
+  muzzle copy (already at the gun). The hand is
   turned so the bore is parallel to the view, the gun's up kept: the whole pose lives in the view's frame, so one
   calibration holds at every pitch, yaw and while turning. Sway now moves the gun's place only (its turn would take the
   line off the dot) and the rest pose lowers it 4 cm and draws it 3 cm back without turning it (only the reload tips it).
