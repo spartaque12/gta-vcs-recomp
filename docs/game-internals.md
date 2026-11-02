@@ -3021,7 +3021,8 @@ place in the view's frame) and screenshots.
   gun straight below the dot (the line vertical: the extrapolated row centres give the sideways miss) and straight right
   of it (column centres: the vertical miss); the heavy guns only at the default place, by eye. **The F2 rows** (the
   user's request, same day): per kind of gun (pistols, SMGs, rifles, shotguns, heavy) the right hand's place, right /
-  ahead / up in cm from the eyes (defaults the places above), and "w" = the roll about the barrel (degrees, + top to the
+  ahead / up in cm from the eyes (defaults the places above; SMGs, rifles and shotguns 15 / 36 / -26 since the user's SA
+  M4 shot, the grip a little more central and lower), and "w" = the roll about the barrel (degrees, + top to the
   right) - a roll about the bore and any place keep the bore parallel to the view, so the dot holds; a yaw / pitch
   pair would take it off. A reset row sets them back (the host's set_setting from the action: saved, on_change called).
   Checked: each gun at its default place and moved 30 / 45 / -12 cm, rolled 35 degrees, the line on the dot.
