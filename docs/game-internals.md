@@ -3039,7 +3039,15 @@ place in the view's frame) and screenshots.
   viewmodel's muzzle (per gun: the converted models' front end in the hand's frame, the converter's offset added;
   other guns 0.5 m along the bore) is written back into the start at the entry of either, after the trace (the hit
   stays the dot's). Checked: M4, Uzi, Colt45, MP5 puff and tracer at the muzzle; the Shotgun's pellets keep their own
-  muzzle copy (already at the gun). The hand is
+  muzzle copy (already at the gun).
+- **Melee finishers and reloads** (the user, 2026-11-02: "executions disable first person", "I don't see the reload anim").
+  A finisher on a downed ped switches the game's camera to a mode of its own, and first person ran in modes 4 / 11
+  only: on foot it now runs in any of the game's own cameras (not a script's, not the scopes or vehicle modes, not
+  while the player dies - state 0x39 on - or is arrested), and logs each such mode once ("[firstperson] kept in camera
+  mode N") - the finisher's mode was not reproduced in hidden runs (melee input did not attack there). With the
+  third-person hold the game's reload anim is below the picture: while the slot reloads the viewmodel's reload pose
+  (the gun lifted 7 cm, tipped 0.25 rad up and rolled toward the left hand) eases in over it. Checked: M4 and Colt45
+  manual reloads in view. The hand is
   turned so the bore is parallel to the view, the gun's up kept: the whole pose lives in the view's frame, so one
   calibration holds at every pitch, yaw and while turning. Sway now moves the gun's place only (its turn would take the
   line off the dot) and the rest pose lowers it 4 cm and draws it 3 cm back without turning it (only the reload tips it).
