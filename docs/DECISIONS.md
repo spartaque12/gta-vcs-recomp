@@ -1421,3 +1421,6 @@ first-person mod, and asked for the viewmodel back with SA's arms and a gun that
   keeps it parallel to the view, so the dot holds with any setting; a yaw / pitch pair would aim it off the dot and a
   scale changes nothing a place cannot. Per kind of gun (pistols, SMGs, rifles, shotguns, heavy), absolute places in
   cm with the SA-style defaults, the old all-guns offsets kept on top (a vcs.ini with them keeps working).
+- **Later the same day the default went back to "as in third person"** (the user: the run anims should match in
+  first and third person, the viewmodel on screen only while aiming). That hold already eased the viewmodel's pose
+  in while aiming, so the change is the default: the per-gun rows, bores and SA hands now serve that aim pose.

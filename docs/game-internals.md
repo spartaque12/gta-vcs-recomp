@@ -3024,7 +3024,13 @@ place in the view's frame) and screenshots.
   ahead / up in cm from the eyes (defaults the places above), and "w" = the roll about the barrel (degrees, + top to the
   right) - a roll about the bore and any place keep the bore parallel to the view, so the dot holds; a yaw / pitch
   pair would take it off. A reset row sets them back (the host's set_setting from the action: saved, on_change called).
-  Checked: each gun at its default place and moved 30 / 45 / -12 cm, rolled 35 degrees, the line on the dot. The hand is
+  Checked: each gun at its default place and moved 30 / 45 / -12 cm, rolled 35 degrees, the line on the dot.
+- **Only while aiming** (the user, later the same day: first and third person should run with the same anims, the
+  viewmodel only on screen while aiming): camera.fp_hold is "as in third person" (0) by default again - not aiming,
+  nothing is moved (the SA armed anims, the same walk / run / idle as third person); aiming, the viewmodel above (the
+  per-gun place, roll and bore, SA's hands) eases in by the ADS share (200 ms up, 180 down; camera.fp_aim_eye). The
+  viewmodel all the time stays choice 1. Checked: Colt45, Uzi, M4, Shotgun - status active 0 at rest and after letting
+  go, 1 aimed (level, up, down, turning), the barrel's line on the dot. The hand is
   turned so the bore is parallel to the view, the gun's up kept: the whole pose lives in the view's frame, so one
   calibration holds at every pitch, yaw and while turning. Sway now moves the gun's place only (its turn would take the
   line off the dot) and the rest pose lowers it 4 cm and draws it 3 cm back without turning it (only the reload tips it).
@@ -3153,7 +3159,7 @@ Andreas' Immersive Weapons Pack anims; the reference was an SA video) with the r
   context, registers saved and put back), and blends it out as ClearPointGunAt on release; firing (state 0x10) is the
   game's own attack on the same association. Checked: M4, Shotgun, Uzi raised to the shoulder in third person (as a
   lock-on), back down on release; Colt45 untouched.
-- **First person "as in third person"** (camera.fp_hold 0; the default 2026-11-01 - 11-02, the viewmodel since, 12t): no bone moved while not aiming - the body's anim holds the
+- **First person "as in third person"** (camera.fp_hold 0; the default, but for a few hours on 2026-11-02, 12t): no bone moved while not aiming - the body's anim holds the
   gun, out of the picture looking ahead, in the hands looking down (as the SA reference). Aiming, the viewmodel's raised
   pose (12t: hand at the place per class, barrel on the dot) is eased in from the body's pose by the ADS share (200 ms
   up, 180 down); camera.fp_aim_eye off shows the game's aim pose instead (the gun at the shoulder, mostly below the
