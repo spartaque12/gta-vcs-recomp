@@ -3064,7 +3064,10 @@ place in the view's frame) and screenshots.
   person only a reload started with the gun up (aiming) plays in view - the right hand stays at the aim's place,
   turned as the anim turns it since the start (35% of its movement), the left hand where the anim has it from the
   right; a reload started at rest is the body's own anim, untouched (seen looking down). Checked: M4 reloaded while
-  aiming, the gun tipping and the left hand working at the magazine in view, back to the aim after.
+  aiming, the gun tipping and the left hand working at the magazine in view, back to the aim after. Last (the user's
+  clip and screenshot of ours): every reload, manual or not, aiming or not, plays in view, and the gun stays at its
+  place - the anim's turns only, none of its movement (with 35% of it the gun dropped low and the hands came huge
+  to the bottom of the picture). Checked: M4 manual reload at rest and while aiming, in view at the gun's place.
 - **At rest unless aiming** (the user's request, 2026-11-01): the hand 6 cm lower and 3 cm back and in, the barrel 0.3 rad
   down and 0.22 rad in, raised to the crosshair only while R1 / the right mouse button aims (free aim) or locked on -
   eased 200 ms up, 180 ms down (UltimateFP's ADS ease); attacking (state 0x10 / 0x11, or a shot's recoil) raises it in
