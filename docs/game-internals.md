@@ -3026,6 +3026,17 @@ place in the view's frame) and screenshots.
   right) - a roll about the bore and any place keep the bore parallel to the view, so the dot holds; a yaw / pitch
   pair would take it off. A reset row sets them back (the host's set_setting from the action: saved, on_change called).
   Checked: each gun at its default place and moved 30 / 45 / -12 cm, rolled 35 degrees, the line on the dot.
+  The hand is turned so the bore is parallel to the view, the gun's up kept: the whole pose lives in the view's frame,
+  so one calibration holds at every pitch, yaw and while turning. Sway now moves the gun's place only (its turn would
+  take the line off the dot) and the rest pose lowers it 4 cm and draws it 3 cm back without turning it (only the
+  reload tips it). The arms: the right hand at (0.17 right, 0.36 ahead, -0.22 up) of the eyes for pistols, SMGs and
+  rifles, (0.30, 0.40, -0.24) for the heavy guns; the right shoulder at (0.24, 0.05, -0.40), the left low under the
+  gun at (0.04, 0.42, -0.62) so the left forearm rises from the bottom of the picture to the handguard (SA's hold,
+  12w) and the right one comes in from the lower right corner; the `viewmodel` status gives both elbows and the left
+  hand in the view (`vmplace` takes the shoulders too). The heavy guns are bulky and parallel to the view: they read
+  mostly from behind. Checked in hidden runs (build/vmx_exe, port 47757, a copy of the card, FOV 87): Colt45, Uzi, M4,
+  Shotgun, SPAS-12, MP5, M60 at rest, aimed, looking 0.4 rad up and down and turning - the barrel's line through the
+  dot; camera.fp_hold 0 unchanged.
 - **Only while aiming** (the user, later the same day: first and third person should run with the same anims, the
   viewmodel only on screen while aiming): camera.fp_hold is "as in third person" (0) by default again - not aiming,
   nothing is moved (the SA armed anims, the same walk / run / idle as third person); aiming, the viewmodel above (the
@@ -3045,19 +3056,11 @@ place in the view's frame) and screenshots.
   only: on foot it now runs in any of the game's own cameras (not a script's, not the scopes or vehicle modes, not
   while the player dies - state 0x39 on - or is arrested), and logs each such mode once ("[firstperson] kept in camera
   mode N") - the finisher's mode was not reproduced in hidden runs (melee input did not attack there). With the
-  third-person hold the game's reload anim is below the picture: while the slot reloads the viewmodel's reload pose
-  (the gun lifted 7 cm, tipped 0.25 rad up and rolled toward the left hand) eases in over it. Checked: M4 and Colt45
-  manual reloads in view. The hand is
-  turned so the bore is parallel to the view, the gun's up kept: the whole pose lives in the view's frame, so one
-  calibration holds at every pitch, yaw and while turning. Sway now moves the gun's place only (its turn would take the
-  line off the dot) and the rest pose lowers it 4 cm and draws it 3 cm back without turning it (only the reload tips it).
-  The arms: the right hand at (0.17 right, 0.36 ahead, -0.22 up) of the eyes for pistols, SMGs and rifles, (0.30, 0.40,
-  -0.24) for the heavy guns; the right shoulder at (0.24, 0.05, -0.40), the left low under the gun at (0.04, 0.42,
-  -0.62) so the left forearm rises from the bottom of the picture to the handguard (SA's hold, 12w) and the right one
-  comes in from the lower right corner; the `viewmodel` status gives both elbows and the left hand in the view (`vmplace`
-  takes the shoulders too). The heavy guns are bulky and parallel to the view: they read mostly from behind. Checked
-  in hidden runs (build/vmx_exe, port 47757, a copy of the card, FOV 87): Colt45, Uzi, M4, Shotgun, SPAS-12, MP5, M60 at
-  rest, aimed, looking 0.4 rad up and down and turning - the barrel's line through the dot; camera.fp_hold 0 unchanged.
+  third-person hold the game's reload anim is below the picture: while the slot reloads the game's own
+  reload anim is carried into view: both hands (and the gun) in the chest's frame (bone 3), placed by the transform noted
+  when the reload starts that puts the anim's right hand at the gun's place in view, the arms reaching them by IK from
+  the shoulders under the picture (a fixed pose had replaced the anim first: "all reload anims are broken"). Checked:
+  M4 and Colt45 manual reloads, the left hand working along the gun in view.
 - **At rest unless aiming** (the user's request, 2026-11-01): the hand 6 cm lower and 3 cm back and in, the barrel 0.3 rad
   down and 0.22 rad in, raised to the crosshair only while R1 / the right mouse button aims (free aim) or locked on -
   eased 200 ms up, 180 ms down (UltimateFP's ADS ease); attacking (state 0x10 / 0x11, or a shot's recoil) raises it in
