@@ -3060,7 +3060,11 @@ place in the view's frame) and screenshots.
   reload anim is carried into view: both hands (and the gun) in the chest's frame (bone 3), placed by the transform noted
   when the reload starts that puts the anim's right hand at the gun's place in view, the arms reaching them by IK from
   the shoulders under the picture (a fixed pose had replaced the anim first: "all reload anims are broken"). Checked:
-  M4 and Colt45 manual reloads, the left hand working along the gun in view.
+  M4 and Colt45 manual reloads, the left hand working along the gun in view. Then, from the user's SA clip: as in SA's first
+  person only a reload started with the gun up (aiming) plays in view - the right hand stays at the aim's place,
+  turned as the anim turns it since the start (35% of its movement), the left hand where the anim has it from the
+  right; a reload started at rest is the body's own anim, untouched (seen looking down). Checked: M4 reloaded while
+  aiming, the gun tipping and the left hand working at the magazine in view, back to the aim after.
 - **At rest unless aiming** (the user's request, 2026-11-01): the hand 6 cm lower and 3 cm back and in, the barrel 0.3 rad
   down and 0.22 rad in, raised to the crosshair only while R1 / the right mouse button aims (free aim) or locked on -
   eased 200 ms up, 180 ms down (UltimateFP's ADS ease); attacking (state 0x10 / 0x11, or a shot's recoil) raises it in
