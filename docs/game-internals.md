@@ -3071,7 +3071,10 @@ place in the view's frame) and screenshots.
   (the user: a manual reload at rest could look broken): the turn was taken from the pose the reload started in -
   from rest the hip hold, so the gun turned off and the left forearm stood up. Now nothing comes from the start: the
   gun stays at its place tipped by a fixed reload pose (0.15 rad up, 0.35 rad roll), the left hand where the anim has
-  it from the right hand. Checked: M4 at rest and aiming, Colt45 at rest - the same reload in view.
+  it from the right hand - which broke it (the user's clip: the gun pointing off, the left hand floating). So the
+  turn comes from the anim again, measured from the right hand once the reload anim has blended in (the reload pose's
+  share at 1, ~0.15 s) instead of from the hold it starts in, no fixed tilt. Checked: M4 at rest and aiming, the gun
+  at its place and the left hand working along it in both.
 - **At rest unless aiming** (the user's request, 2026-11-01): the hand 6 cm lower and 3 cm back and in, the barrel 0.3 rad
   down and 0.22 rad in, raised to the crosshair only while R1 / the right mouse button aims (free aim) or locked on -
   eased 200 ms up, 180 ms down (UltimateFP's ADS ease); attacking (state 0x10 / 0x11, or a shot's recoil) raises it in
